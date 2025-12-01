@@ -1,3 +1,4 @@
+# app.py
 import streamlit as st
 from yt_dlp import YoutubeDL
 import requests
@@ -64,7 +65,7 @@ def fetch_m3u8_text(url: str, cookies=None, timeout=10):
 # cookies 上傳（選用）
 uploaded_cookies = st.file_uploader("（選擇性）上傳 YouTube cookies.txt（Netscape 格式）以供抓取時使用", type=["txt"])
 
-# 若 session_state 中沒有 tv_channels，則在頁面載入時自動抓取並儲存
+# 自動抓取一次並儲存到 session_state（若尚未抓取）
 if "tv_channels" not in st.session_state:
     cookiefile_path = None
     if uploaded_cookies:
@@ -117,8 +118,7 @@ if "tv_channels" in st.session_state:
         for u in unavailable:
             st.write(f"- {u['name']}: {u.get('error')}")
     else:
-        # 確保三立為第一台（若輸入順序不同，可調整）
-        # 這裡假設 CHANNELS 第一項為三立
+        # 準備播放清單（保留原順序，假設第一項為三立）
         player_list = []
         for c in playable:
             player_list.append({
@@ -129,17 +129,19 @@ if "tv_channels" in st.session_state:
 
         player_id = "player_" + uuid.uuid4().hex[:8]
 
-        # 內嵌播放器：自動播放（從第一台開始），左右鍵切台
+        # 內嵌播放器：自動播放（嘗試非靜音），左右鍵切台
         html = f"""
         <div style="display:flex;flex-direction:column;align-items:center;">
           <div id="{player_id}_title" style="font-weight:600;margin-bottom:8px;">正在播放：{player_list[0]['name']}</div>
-          <video id="{player_id}" controls autoplay playsinline muted style="width:100%;max-width:960px;height:auto;background:black;"></video>
+          <video id="{player_id}" controls autoplay playsinline style="width:100%;max-width:960px;height:auto;background:black;"></video>
           <div style="margin-top:8px;">
             <button id="{player_id}_prev">◀ 上一台</button>
             <button id="{player_id}_next">下一台 ▶</button>
             <span id="{player_id}_info" style="margin-left:12px;"></span>
           </div>
-          <div style="margin-top:6px;color:#666;font-size:13px;">提示：使用鍵盤左右鍵也可切換頻道；若無聲音請取消靜音。</div>
+          <div id="{player_id}_overlay" style="display:none;margin-top:8px;color:#c33;font-size:14px;">
+            自動播放被瀏覽器阻擋，請按播放並取消靜音以聽聲音。
+          </div>
         </div>
 
         <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js"></script>
@@ -152,6 +154,7 @@ if "tv_channels" in st.session_state:
             const info = document.getElementById("{player_id}_info");
             const prevBtn = document.getElementById("{player_id}_prev");
             const nextBtn = document.getElementById("{player_id}_next");
+            const overlay = document.getElementById("{player_id}_overlay");
 
             function updateInfo() {{
                 const cur = list[idx];
@@ -159,12 +162,9 @@ if "tv_channels" in st.session_state:
                 info.innerText = (cur.height ? (cur.height + "p") : "") ;
             }}
 
-            function loadSrc(url) {{
-                // 嘗試自動播放：先靜音以提高自動播放成功率
-                video.muted = true;
+            function attachHls(url) {{
                 if (video.canPlayType('application/vnd.apple.mpegurl')) {{
                     video.src = url;
-                    video.play().catch(()=>{{}});
                 }} else if (Hls.isSupported()) {{
                     if (window._hls_instance) {{
                         try {{ window._hls_instance.destroy(); }} catch(e){{}}
@@ -174,11 +174,21 @@ if "tv_channels" in st.session_state:
                     window._hls_instance = hls;
                     hls.loadSource(url);
                     hls.attachMedia(video);
-                    hls.on(Hls.Events.MANIFEST_PARSED, function() {{
-                        video.play().catch(()=>{{}});
-                    }});
                 }} else {{
                     video.src = url;
+                }}
+            }}
+
+            async function loadSrc(url) {{
+                // 嘗試非靜音自動播放
+                video.muted = false;
+                attachHls(url);
+                try {{
+                    await video.play();
+                    overlay.style.display = "none";
+                }} catch (err) {{
+                    // 自動播放被阻擋，顯示提示（保留非靜音）
+                    overlay.style.display = "block";
                 }}
             }}
 
@@ -208,7 +218,6 @@ if "tv_channels" in st.session_state:
         </script>
         """
 
-        # 高度可視需求調整
         st.components.v1.html(html, height=600)
 
         # 顯示不可用頻道
@@ -218,5 +227,3 @@ if "tv_channels" in st.session_state:
                 st.write(f"- {u['name']}: {u.get('error')}")
 
         st.info("若某台需要登入驗證，請上傳 cookies.txt 並重新整理頁面以讓伺服器抓取帶 cookies 的 m3u8。")
-
-# 小提示：若要強制重新抓取（例如上傳 cookies 後），使用者可按瀏覽器重新整理
