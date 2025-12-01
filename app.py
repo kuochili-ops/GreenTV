@@ -6,6 +6,8 @@ import uuid
 import tempfile
 import os
 from urllib.parse import urlparse
+import concurrent.futures
+import time
 
 st.set_page_config(page_title="YouTube Live TV（含 Playlist 連播）", layout="wide")
 st.title("YouTube Live TV（自動播放、左右鍵切台、Playlist 連播）")
@@ -63,15 +65,99 @@ def fetch_m3u8_text(url: str, cookies=None, timeout=10):
     resp.raise_for_status()
     return resp.text
 
-# --- UI: cookies 上傳與 playlist 輸入 ---
+# --- Playlist helpers (fast extract + parallel detail fetch) ---
+def fetch_playlist_entries_flat(playlist_url, cookiefile=None, timeout=30):
+    """
+    Use extract_flat to quickly list playlist entries (fast).
+    Returns list of dicts: {"title":..., "url":...}
+    """
+    ydl_opts = {"skip_download": True, "quiet": True, "no_warnings": True, "extract_flat": True, "socket_timeout": timeout}
+    if cookiefile:
+        ydl_opts["cookiefile"] = cookiefile
+    with YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(playlist_url, download=False)
+    entries = info.get("entries") or []
+    vids = []
+    for e in entries:
+        if isinstance(e, dict):
+            url = e.get("url") or e.get("webpage_url")
+            title = e.get("title") or url
+            # normalize relative watch?v= ids
+            if url and url.startswith("watch"):
+                url = "https://www.youtube.com/" + url
+            vids.append({"title": title, "url": url})
+        else:
+            vids.append({"title": str(e), "url": str(e)})
+    return vids
+
+def fetch_best_m3u8_for_video(video_url, cookiefile=None, timeout=30):
+    """
+    Fetch detailed info for a single video and return best m3u8 info or error.
+    """
+    try:
+        ydl_opts = {"skip_download": True, "quiet": True, "no_warnings": True, "socket_timeout": timeout}
+        if cookiefile:
+            ydl_opts["cookiefile"] = cookiefile
+        with YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(video_url, download=False)
+        formats = info.get("formats") or []
+        best = choose_best_m3u8(formats)
+        if best:
+            return {"title": info.get("title") or video_url, "url": best.get("url"), "height": best.get("height") or best.get("tbr")}
+        else:
+            return {"title": info.get("title") or video_url, "url": None, "error": "找不到 m3u8"}
+    except Exception as e:
+        return {"title": video_url, "url": None, "error": str(e)}
+
+def process_playlist_parallel(playlist_url, cookiefile=None, max_workers=6):
+    """
+    1) extract_flat to get entries quickly
+    2) parallel fetch each video's best m3u8
+    Returns list of items with keys: title, url (or None), height, error (optional)
+    """
+    entries = fetch_playlist_entries_flat(playlist_url, cookiefile=cookiefile)
+    total = len(entries)
+    results = []
+    if total == 0:
+        return results, "找不到任何條目或 playlist 為私人/受限"
+    # progress UI handled by caller
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as ex:
+        future_to_entry = {ex.submit(fetch_best_m3u8_for_video, e["url"], cookiefile): e for e in entries if e.get("url")}
+        done = 0
+        for fut in concurrent.futures.as_completed(future_to_entry):
+            e = future_to_entry[fut]
+            try:
+                res = fut.result()
+            except Exception as exc:
+                res = {"title": e.get("title"), "url": None, "error": str(exc)}
+            results.append(res)
+            done += 1
+    return results, None
+
+# --- UI inputs ---
 uploaded_cookies = st.file_uploader("（選擇性）上傳 YouTube cookies.txt（Netscape 格式）以供抓取時使用", type=["txt"])
 playlist_input = st.text_input("（選用）貼上 YouTube playlist 或 channel URL（會嘗試把 playlist 轉成連播清單）", "")
 
-# --- 抓取頻道與 playlist（自動在 session_state） ---
-def build_tv_list(channels, playlist_url=None, cookiefile_path=None):
-    results = []
-    # 先處理單台清單（預設頻道）
-    for ch in channels:
+# Button to force re-fetch (useful after uploading cookies)
+if st.button("重新抓取並啟動播放器（若已上傳 cookies，請先上傳再按）"):
+    st.session_state.pop("tv_channels", None)
+    st.session_state.pop("playlist_items", None)
+    st.experimental_rerun()
+
+# --- Build lists if not present ---
+if "tv_channels" not in st.session_state or "playlist_items" not in st.session_state:
+    cookiefile_path = None
+    if uploaded_cookies:
+        tmp = tempfile.NamedTemporaryFile(delete=False)
+        tmp.write(uploaded_cookies.getbuffer())
+        tmp.flush()
+        tmp.close()
+        cookiefile_path = tmp.name
+        st.info("已上傳 cookies（暫存），抓取階段會使用它（若需要）。")
+
+    # fetch default channels (synchronous, small number)
+    channels_res = []
+    for ch in CHANNELS:
         name = ch["name"]
         url = ch["url"]
         item = {"name": name, "input_url": url, "error": None, "best_url": None, "height": None}
@@ -86,75 +172,52 @@ def build_tv_list(channels, playlist_url=None, cookiefile_path=None):
                 item["error"] = "找不到 m3u8/HLS 格式"
         except Exception as e:
             item["error"] = str(e)
-        results.append(item)
+        channels_res.append(item)
 
-    # 若有 playlist_url，嘗試抓取 playlist entries 並為每支影片找最佳 m3u8
+    # process playlist if provided (use parallel processing and show progress)
     playlist_items = []
-    if playlist_url:
+    playlist_error = None
+    if playlist_input:
+        st.info("開始解析 playlist 條目（快速列出後並行解析每支影片）...")
+        progress_bar = st.progress(0)
+        status_text = st.empty()
         try:
-            # 先用 yt-dlp 抓取 playlist metadata（包含 entries）
-            ydl_opts = {"skip_download": True, "quiet": True, "no_warnings": True}
-            if cookiefile_path:
-                ydl_opts["cookiefile"] = cookiefile_path
-            with YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(playlist_url, download=False)
-            entries = info.get("entries") or []
-            for e in entries:
-                # 每個 entry 可能是 dict 或 url string
-                try:
-                    # 若 entry 是 dict 且包含 id 或 webpage_url，組成影片 URL
-                    if isinstance(e, dict):
-                        vid_url = e.get("webpage_url") or e.get("url")
-                        title = e.get("title") or vid_url
-                    else:
-                        vid_url = e
-                        title = vid_url
-                    if not vid_url:
-                        continue
-                    # 取得該影片的 formats
-                    try:
-                        vinfo = fetch_info(vid_url, cookiefile=cookiefile_path)
-                        formats = vinfo.get("formats") or []
-                        best = choose_best_m3u8(formats)
-                        if best:
-                            playlist_items.append({
-                                "name": title,
-                                "url": best.get("url"),
-                                "height": best.get("height") or best.get("tbr") or None
-                            })
+            # first get flat entries count
+            try:
+                flat_entries = fetch_playlist_entries_flat(playlist_input, cookiefile=cookiefile_path)
+            except Exception as e:
+                flat_entries = []
+                playlist_error = f"無法列出 playlist 條目：{e}"
+            total = len(flat_entries)
+            status_text.text(f"找到 {total} 支影片，開始並行解析（每支影片會嘗試找 m3u8）")
+            if total > 0:
+                # parallel fetch with progress updates
+                results = []
+                with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex:
+                    futures = []
+                    for e in flat_entries:
+                        if e.get("url"):
+                            futures.append(ex.submit(fetch_best_m3u8_for_video, e["url"], cookiefile_path))
                         else:
-                            playlist_items.append({
-                                "name": title,
-                                "url": None,
-                                "error": "找不到 m3u8"
-                            })
-                    except Exception as ve:
-                        playlist_items.append({
-                            "name": title,
-                            "url": None,
-                            "error": str(ve)
-                        })
-                except Exception:
-                    continue
+                            results.append({"title": e.get("title"), "url": None, "error": "無影片 URL"})
+                    done = 0
+                    for fut in concurrent.futures.as_completed(futures):
+                        res = fut.result()
+                        results.append(res)
+                        done += 1
+                        progress_bar.progress(min(done / max(total, 1), 1.0))
+                playlist_items = results
+            else:
+                playlist_items = []
         except Exception as e:
-            st.warning(f"抓取 playlist 失敗：{e}")
+            playlist_error = str(e)
+        finally:
+            progress_bar.progress(1.0)
+            status_text.text("解析完成")
+            time.sleep(0.3)
+            status_text.empty()
 
-    return results, playlist_items
-
-# 若尚未抓取，執行一次（會在 session_state 儲存）
-if "tv_channels" not in st.session_state:
-    cookiefile_path = None
-    if uploaded_cookies:
-        tmp = tempfile.NamedTemporaryFile(delete=False)
-        tmp.write(uploaded_cookies.getbuffer())
-        tmp.flush()
-        tmp.close()
-        cookiefile_path = tmp.name
-        st.info("已上傳 cookies（暫存），抓取階段會使用它（若需要）。")
-
-    channels_res, playlist_res = build_tv_list(CHANNELS, playlist_url=playlist_input or None, cookiefile_path=cookiefile_path)
-
-    # 清理暫存 cookie 檔
+    # cleanup cookie temp
     if cookiefile_path and os.path.exists(cookiefile_path):
         try:
             os.remove(cookiefile_path)
@@ -162,43 +225,47 @@ if "tv_channels" not in st.session_state:
             pass
 
     st.session_state["tv_channels"] = channels_res
-    st.session_state["playlist_items"] = playlist_res
+    st.session_state["playlist_items"] = playlist_items
+    st.session_state["playlist_error"] = playlist_error
 
-# --- 前端播放器資料準備 ---
+# --- Prepare player list ---
 channels = st.session_state.get("tv_channels", [])
 playlist_items = st.session_state.get("playlist_items", [])
+playlist_error = st.session_state.get("playlist_error", None)
 
-# 合併來源：若有 playlist 並且 playlist_items 有可用 url，優先使用 playlist播放模式
 playable_playlist = [p for p in playlist_items if p.get("url")]
 playable_channels = [c for c in channels if c.get("best_url")]
 
-# UI 顯示與播放器行為
 st.markdown("### 播放器")
+if playlist_input and playlist_error:
+    st.warning(f"Playlist 解析警告：{playlist_error}")
+
 if playable_playlist:
     st.info(f"偵測到 playlist，將以 playlist 連播模式播放，共 {len(playable_playlist)} 支影片（會依序播放）")
-    player_list = playable_playlist  # 使用 playlist
+    player_list = playable_playlist
 else:
-    player_list = playable_channels  # 使用單台清單（頻道）
+    player_list = playable_channels
 
 if not player_list:
     st.warning("目前沒有可播放的 m3u8 項目。請檢查是否需要 cookies 或該影片是否使用 HLS。")
-    # 顯示錯誤項目
     if playlist_items:
         st.markdown("**Playlist 中不可用的項目**")
         for p in playlist_items:
             if not p.get("url"):
-                st.write(f"- {p.get('name')}: {p.get('error')}")
+                st.write(f"- {p.get('title')}: {p.get('error')}")
     if channels:
         st.markdown("**頻道中不可用的項目**")
         for c in channels:
             if not c.get("best_url"):
                 st.write(f"- {c.get('name')}: {c.get('error')}")
 else:
-    # 產生 player_list 給前端
     player_id = "player_" + uuid.uuid4().hex[:8]
+    # build minimal player_list for JS (title, url, height)
+    js_list = [{"name": it.get("title") or it.get("name"), "url": it.get("url"), "height": it.get("height")} for it in player_list]
+
     html = f"""
     <div style="display:flex;flex-direction:column;align-items:center;">
-      <div id="{player_id}_title" style="font-weight:600;margin-bottom:8px;">正在播放：{player_list[0]['name']}</div>
+      <div id="{player_id}_title" style="font-weight:600;margin-bottom:8px;">正在播放：{js_list[0]['name']}</div>
       <video id="{player_id}" controls autoplay playsinline style="width:100%;max-width:960px;height:auto;background:black;"></video>
       <div style="margin-top:8px;">
         <button id="{player_id}_prev">◀ 上一則</button>
@@ -213,7 +280,7 @@ else:
     <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js"></script>
     <script>
     (function(){{
-        const list = {player_list!r};
+        const list = {js_list!r};
         let idx = 0;
         const video = document.getElementById("{player_id}");
         const title = document.getElementById("{player_id}_title");
@@ -309,7 +376,7 @@ if playlist_items:
     if bad:
         st.markdown("**Playlist 中不可用的項目**")
         for p in bad:
-            st.write(f"- {p.get('name')}: {p.get('error')}")
+            st.write(f"- {p.get('title')}: {p.get('error')}")
 
 if channels:
     badc = [c for c in channels if not c.get("best_url")]
