@@ -9,13 +9,14 @@ from urllib.parse import urlparse
 
 st.set_page_config(page_title="YouTube Live TV（全螢幕切台）", layout="wide")
 st.title("YouTube Live TV（全螢幕可左右鍵切台）")
-st.write("頁面載入後自動從三立開始播放；支援左右鍵切台與全螢幕模式（全螢幕仍可切台）。")
+st.write("頁面載入後自動從三立開始播放；支援左右鍵切台與雙擊全螢幕（全螢幕仍可切台）。")
 st.warning("若直播需要登入驗證，請上傳 cookies.txt（Netscape 格式）於私有環境並重新整理頁面。")
 
 CHANNELS = [
     {"name": "三立新聞", "url": "https://www.youtube.com/live/QsGswQvRmtU?si=0tG0FZcoxq5nftxS"},
     {"name": "民視新聞", "url": "https://www.youtube.com/live/ylYJSBUgaMA?si=yBqbwafsMknTq_gT"},
     {"name": "鏡新聞", "url": "https://www.youtube.com/live/5n0y6b0Q25o?si=ZufSUna9wrqjZuZx"},
+    {"name": "非凡新聞", "url": "https://www.youtube.com/live/wAUx3pywTt8?si=9RB3z_JhUsQyGwb-"},
 ]
 
 ALLOWED_HOSTS = ("youtube.com", "www.youtube.com", "youtu.be")
@@ -127,10 +128,9 @@ if "tv_channels" in st.session_state:
 
         player_id = "player_" + uuid.uuid4().hex[:8]
 
-        # 內嵌播放器：自動播放（嘗試非靜音），左右鍵切台，支援全螢幕（雙擊或按鈕）
+        # 內嵌播放器：自動播放（嘗試非靜音），左右鍵切台，雙擊影片進入/離開全螢幕（移除下方全螢幕按鈕）
         html = f"""
         <style>
-        /* 讓 video container 在全螢幕時也能置中 */
         .player-container {{
             display:flex;
             flex-direction:column;
@@ -148,7 +148,6 @@ if "tv_channels" in st.session_state:
           <div class="player-controls">
             <button id="{player_id}_prev">◀ 上一台</button>
             <button id="{player_id}_next">下一台 ▶</button>
-            <button id="{player_id}_fs">全螢幕 ⤢</button>
             <span id="{player_id}_info" style="margin-left:12px;"></span>
           </div>
           <div id="{player_id}_overlay" style="display:none;margin-top:8px;color:#c33;font-size:14px;">
@@ -167,7 +166,6 @@ if "tv_channels" in st.session_state:
             const info = document.getElementById("{player_id}_info");
             const prevBtn = document.getElementById("{player_id}_prev");
             const nextBtn = document.getElementById("{player_id}_next");
-            const fsBtn = document.getElementById("{player_id}_fs");
             const overlay = document.getElementById("{player_id}_overlay");
 
             function updateInfo() {{
@@ -217,28 +215,7 @@ if "tv_channels" in st.session_state:
             prevBtn.addEventListener('click', ()=> gotoIndex(idx-1));
             nextBtn.addEventListener('click', ()=> gotoIndex(idx+1));
 
-            // 全螢幕按鈕：切換 container 全螢幕
-            fsBtn.addEventListener('click', async () => {{
-                try {{
-                    if (!document.fullscreenElement) {{
-                        if (container.requestFullscreen) {{
-                            await container.requestFullscreen();
-                        }} else if (container.webkitRequestFullscreen) {{
-                            container.webkitRequestFullscreen();
-                        }}
-                    }} else {{
-                        if (document.exitFullscreen) {{
-                            await document.exitFullscreen();
-                        }} else if (document.webkitExitFullscreen) {{
-                            document.webkitExitFullscreen();
-                        }}
-                    }}
-                }} catch (e) {{
-                    console.warn('fullscreen error', e);
-                }}
-            }});
-
-            // 雙擊影片也切換全螢幕
+            // 雙擊影片切換全螢幕（保留，手機上若無效也不會顯示按鈕）
             video.addEventListener('dblclick', async () => {{
                 try {{
                     if (!document.fullscreenElement) {{
@@ -262,7 +239,6 @@ if "tv_channels" in st.session_state:
             // 當進入或離開全螢幕時，確保鍵盤事件仍可用並把 focus 放到 document
             document.addEventListener('fullscreenchange', () => {{
                 try {{
-                    // focus 讓鍵盤事件穩定
                     document.activeElement && document.activeElement.blur && document.activeElement.blur();
                     document.body.focus && document.body.focus();
                 }} catch(e){{}}
@@ -270,7 +246,6 @@ if "tv_channels" in st.session_state:
 
             // 鍵盤左右鍵切台（在全螢幕也有效）
             document.addEventListener('keydown', function(e) {{
-                // 若使用者在輸入框等元素中，避免攔截
                 const tag = (document.activeElement && document.activeElement.tagName) || '';
                 if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement && document.activeElement.isContentEditable) {{
                     return;
