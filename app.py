@@ -140,9 +140,18 @@ playlist_input = st.text_input("（選用）貼上 YouTube playlist 或 channel 
 
 # Button to force re-fetch (useful after uploading cookies)
 if st.button("重新抓取並啟動播放器（若已上傳 cookies，請先上傳再按）"):
-    st.session_state.pop("tv_channels", None)
-    st.session_state.pop("playlist_items", None)
-    st.experimental_rerun()
+    # 安全移除可能存在的 session keys
+    for k in ["tv_channels", "playlist_items", "playlist_error"]:
+        if k in st.session_state:
+            del st.session_state[k]
+
+    # 嘗試自動重新整理；若失敗則提示並停止執行，避免未處理的例外
+    try:
+        st.experimental_rerun()
+    except Exception as e:
+        st.warning("自動重新整理失敗，請手動重新整理頁面（按 F5 或重新載入）。")
+        st.write("（debug）rerun 例外：", str(e))
+        st.stop()
 
 # --- Build lists if not present ---
 if "tv_channels" not in st.session_state or "playlist_items" not in st.session_state:
