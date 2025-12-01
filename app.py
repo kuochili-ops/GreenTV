@@ -18,6 +18,7 @@ CHANNELS = [
     {"name": "民視新聞", "url": "https://www.youtube.com/live/ylYJSBUgaMA?si=yBqbwafsMknTq_gT"},
     {"name": "鏡新聞", "url": "https://www.youtube.com/live/5n0y6b0Q25o?si=ZufSUna9wrqjZuZx"},
     {"name": "非凡新聞", "url": "https://www.youtube.com/live/wAUx3pywTt8?si=9RB3z_JhUsQyGwb-"},
+    {"name": "懷舊歌曲", "url": "https://youtu.be/BDYWDr8XZjo?si=4EYzEa3jnV5JOEOj"},
 ]
 
 ALLOWED_HOSTS = ("youtube.com", "www.youtube.com", "youtu.be")
