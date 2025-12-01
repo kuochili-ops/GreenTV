@@ -7,12 +7,11 @@ import tempfile
 import os
 from urllib.parse import urlparse
 
-st.set_page_config(page_title="YouTube Live TV（自動播放）", layout="wide")
-st.title("YouTube Live TV（自動從三立開始播放，左右鍵切台）")
-st.write("頁面載入後會自動從三立新聞開始播放；使用鍵盤左右鍵切換頻道。若直播需要登入驗證，請上傳 cookies.txt（私有環境）並重新整理頁面。")
-st.warning("Cookies 含登入憑證，請僅在私有或受信任環境使用；上傳後程式會暫存並嘗試刪除。")
+st.set_page_config(page_title="YouTube Live TV（全螢幕切台）", layout="wide")
+st.title("YouTube Live TV（全螢幕可左右鍵切台）")
+st.write("頁面載入後自動從三立開始播放；支援左右鍵切台與全螢幕模式（全螢幕仍可切台）。")
+st.warning("若直播需要登入驗證，請上傳 cookies.txt（Netscape 格式）於私有環境並重新整理頁面。")
 
-# 預設三台（使用者提供）
 CHANNELS = [
     {"name": "三立新聞", "url": "https://www.youtube.com/live/QsGswQvRmtU?si=0tG0FZcoxq5nftxS"},
     {"name": "民視新聞", "url": "https://www.youtube.com/live/ylYJSBUgaMA?si=yBqbwafsMknTq_gT"},
@@ -118,7 +117,6 @@ if "tv_channels" in st.session_state:
         for u in unavailable:
             st.write(f"- {u['name']}: {u.get('error')}")
     else:
-        # 準備播放清單（保留原順序，假設第一項為三立）
         player_list = []
         for c in playable:
             player_list.append({
@@ -129,14 +127,28 @@ if "tv_channels" in st.session_state:
 
         player_id = "player_" + uuid.uuid4().hex[:8]
 
-        # 內嵌播放器：自動播放（嘗試非靜音），左右鍵切台
+        # 內嵌播放器：自動播放（嘗試非靜音），左右鍵切台，支援全螢幕（雙擊或按鈕）
         html = f"""
-        <div style="display:flex;flex-direction:column;align-items:center;">
+        <style>
+        /* 讓 video container 在全螢幕時也能置中 */
+        .player-container {{
+            display:flex;
+            flex-direction:column;
+            align-items:center;
+            width:100%;
+        }}
+        .player-controls {{
+            margin-top:8px;
+        }}
+        </style>
+
+        <div class="player-container" id="{player_id}_container">
           <div id="{player_id}_title" style="font-weight:600;margin-bottom:8px;">正在播放：{player_list[0]['name']}</div>
           <video id="{player_id}" controls autoplay playsinline style="width:100%;max-width:960px;height:auto;background:black;"></video>
-          <div style="margin-top:8px;">
+          <div class="player-controls">
             <button id="{player_id}_prev">◀ 上一台</button>
             <button id="{player_id}_next">下一台 ▶</button>
+            <button id="{player_id}_fs">全螢幕 ⤢</button>
             <span id="{player_id}_info" style="margin-left:12px;"></span>
           </div>
           <div id="{player_id}_overlay" style="display:none;margin-top:8px;color:#c33;font-size:14px;">
@@ -150,10 +162,12 @@ if "tv_channels" in st.session_state:
             const list = {player_list!r};
             let idx = 0;
             const video = document.getElementById("{player_id}");
+            const container = document.getElementById("{player_id}_container");
             const title = document.getElementById("{player_id}_title");
             const info = document.getElementById("{player_id}_info");
             const prevBtn = document.getElementById("{player_id}_prev");
             const nextBtn = document.getElementById("{player_id}_next");
+            const fsBtn = document.getElementById("{player_id}_fs");
             const overlay = document.getElementById("{player_id}_overlay");
 
             function updateInfo() {{
@@ -203,7 +217,64 @@ if "tv_channels" in st.session_state:
             prevBtn.addEventListener('click', ()=> gotoIndex(idx-1));
             nextBtn.addEventListener('click', ()=> gotoIndex(idx+1));
 
+            // 全螢幕按鈕：切換 container 全螢幕
+            fsBtn.addEventListener('click', async () => {{
+                try {{
+                    if (!document.fullscreenElement) {{
+                        if (container.requestFullscreen) {{
+                            await container.requestFullscreen();
+                        }} else if (container.webkitRequestFullscreen) {{
+                            container.webkitRequestFullscreen();
+                        }}
+                    }} else {{
+                        if (document.exitFullscreen) {{
+                            await document.exitFullscreen();
+                        }} else if (document.webkitExitFullscreen) {{
+                            document.webkitExitFullscreen();
+                        }}
+                    }}
+                }} catch (e) {{
+                    console.warn('fullscreen error', e);
+                }}
+            }});
+
+            // 雙擊影片也切換全螢幕
+            video.addEventListener('dblclick', async () => {{
+                try {{
+                    if (!document.fullscreenElement) {{
+                        if (container.requestFullscreen) {{
+                            await container.requestFullscreen();
+                        }} else if (container.webkitRequestFullscreen) {{
+                            container.webkitRequestFullscreen();
+                        }}
+                    }} else {{
+                        if (document.exitFullscreen) {{
+                            await document.exitFullscreen();
+                        }} else if (document.webkitExitFullscreen) {{
+                            document.webkitExitFullscreen();
+                        }}
+                    }}
+                }} catch (e) {{
+                    console.warn('dblclick fullscreen error', e);
+                }}
+            }});
+
+            // 當進入或離開全螢幕時，確保鍵盤事件仍可用並把 focus 放到 document
+            document.addEventListener('fullscreenchange', () => {{
+                try {{
+                    // focus 讓鍵盤事件穩定
+                    document.activeElement && document.activeElement.blur && document.activeElement.blur();
+                    document.body.focus && document.body.focus();
+                }} catch(e){{}}
+            }});
+
+            // 鍵盤左右鍵切台（在全螢幕也有效）
             document.addEventListener('keydown', function(e) {{
+                // 若使用者在輸入框等元素中，避免攔截
+                const tag = (document.activeElement && document.activeElement.tagName) || '';
+                if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement && document.activeElement.isContentEditable) {{
+                    return;
+                }}
                 if (e.key === 'ArrowLeft') {{
                     gotoIndex(idx-1);
                 }} else if (e.key === 'ArrowRight') {{
@@ -218,7 +289,7 @@ if "tv_channels" in st.session_state:
         </script>
         """
 
-        st.components.v1.html(html, height=600)
+        st.components.v1.html(html, height=700)
 
         # 顯示不可用頻道
         if unavailable:
