@@ -6,9 +6,10 @@ import tempfile
 import os
 from urllib.parse import urlparse
 
-st.set_page_config(page_title="YouTube Live TV（自動播放 + 左右鍵切台）", layout="wide")
+st.set_page_config(page_title="YouTube Live TV（自動播放）", layout="wide")
 st.title("YouTube Live TV（自動從三立開始播放，左右鍵切台）")
-st.write("頁面載入後會自動從三立新聞開始播放；使用鍵盤左右鍵切換頻道。若直播需要登入驗證，請在私有環境上傳 cookies.txt 再按載入。")
+st.write("頁面載入後會自動從三立新聞開始播放；使用鍵盤左右鍵切換頻道。若直播需要登入驗證，請上傳 cookies.txt（私有環境）並重新整理頁面。")
+st.warning("Cookies 含登入憑證，請僅在私有或受信任環境使用；上傳後程式會暫存並嘗試刪除。")
 
 # 預設三台（使用者提供）
 CHANNELS = [
@@ -54,11 +55,17 @@ def choose_best_m3u8(formats: list):
     candidates.sort(key=score, reverse=True)
     return candidates[0]
 
-# optional cookies upload for private usage
+def fetch_m3u8_text(url: str, cookies=None, timeout=10):
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; yt-dlp/streamlit-app)"}
+    resp = requests.get(url, headers=headers, cookies=cookies, timeout=timeout)
+    resp.raise_for_status()
+    return resp.text
+
+# cookies 上傳（選用）
 uploaded_cookies = st.file_uploader("（選擇性）上傳 YouTube cookies.txt（Netscape 格式）以供抓取時使用", type=["txt"])
 
-if st.button("載入並啟動播放器（從三立開始）"):
-    # 暫存 cookies 檔（若有）
+# 若 session_state 中沒有 tv_channels，則在頁面載入時自動抓取並儲存
+if "tv_channels" not in st.session_state:
     cookiefile_path = None
     if uploaded_cookies:
         tmp = tempfile.NamedTemporaryFile(delete=False)
@@ -97,21 +104,21 @@ if st.button("載入並啟動播放器（從三立開始）"):
         except Exception:
             pass
 
-    # 儲存結果到 session_state
     st.session_state["tv_channels"] = results
-    st.success("已載入頻道資訊，播放器啟動中（從三立開始）。")
 
-# 如果有結果，顯示播放器（單一播放器，左右鍵切台）
+# 若有結果，直接啟動播放器（從三立開始）
 if "tv_channels" in st.session_state:
     channels = st.session_state["tv_channels"]
-    # 建立清單：只保留有 best_url 的頻道，並保留原順序
     playable = [c for c in channels if c.get("best_url")]
     unavailable = [c for c in channels if not c.get("best_url")]
 
     if not playable:
         st.warning("目前沒有可播放的頻道。請檢查是否需要 cookies 或該直播是否使用 HLS。")
+        for u in unavailable:
+            st.write(f"- {u['name']}: {u.get('error')}")
     else:
-        # 準備傳給前端播放器的資料
+        # 確保三立為第一台（若輸入順序不同，可調整）
+        # 這裡假設 CHANNELS 第一項為三立
         player_list = []
         for c in playable:
             player_list.append({
@@ -120,21 +127,19 @@ if "tv_channels" in st.session_state:
                 "height": c.get("height")
             })
 
-        # 產生唯一 id
         player_id = "player_" + uuid.uuid4().hex[:8]
 
-        # 內嵌 HTML/JS 播放器（hls.js），支援左右鍵切台與自動從第一台播放
-        # 注意：若 m3u8 需要 cookies，瀏覽器端可能無法直接存取（視 CORS 與驗證而定）
+        # 內嵌播放器：自動播放（從第一台開始），左右鍵切台
         html = f"""
         <div style="display:flex;flex-direction:column;align-items:center;">
           <div id="{player_id}_title" style="font-weight:600;margin-bottom:8px;">正在播放：{player_list[0]['name']}</div>
-          <video id="{player_id}" controls autoplay playsinline style="width:100%;max-width:960px;height:auto;background:black;"></video>
+          <video id="{player_id}" controls autoplay playsinline muted style="width:100%;max-width:960px;height:auto;background:black;"></video>
           <div style="margin-top:8px;">
             <button id="{player_id}_prev">◀ 上一台</button>
             <button id="{player_id}_next">下一台 ▶</button>
             <span id="{player_id}_info" style="margin-left:12px;"></span>
           </div>
-          <div style="margin-top:6px;color:#666;font-size:13px;">提示：使用鍵盤左右鍵也可切換頻道</div>
+          <div style="margin-top:6px;color:#666;font-size:13px;">提示：使用鍵盤左右鍵也可切換頻道；若無聲音請取消靜音。</div>
         </div>
 
         <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js"></script>
@@ -155,8 +160,9 @@ if "tv_channels" in st.session_state:
             }}
 
             function loadSrc(url) {{
+                // 嘗試自動播放：先靜音以提高自動播放成功率
+                video.muted = true;
                 if (video.canPlayType('application/vnd.apple.mpegurl')) {{
-                    // Safari 原生支援
                     video.src = url;
                     video.play().catch(()=>{{}});
                 }} else if (Hls.isSupported()) {{
@@ -172,7 +178,6 @@ if "tv_channels" in st.session_state:
                         video.play().catch(()=>{{}});
                     }});
                 }} else {{
-                    // 無法播放
                     video.src = url;
                 }}
             }}
@@ -188,7 +193,6 @@ if "tv_channels" in st.session_state:
             prevBtn.addEventListener('click', ()=> gotoIndex(idx-1));
             nextBtn.addEventListener('click', ()=> gotoIndex(idx+1));
 
-            // 鍵盤左右鍵切台
             document.addEventListener('keydown', function(e) {{
                 if (e.key === 'ArrowLeft') {{
                     gotoIndex(idx-1);
@@ -204,6 +208,7 @@ if "tv_channels" in st.session_state:
         </script>
         """
 
+        # 高度可視需求調整
         st.components.v1.html(html, height=600)
 
         # 顯示不可用頻道
@@ -212,5 +217,6 @@ if "tv_channels" in st.session_state:
             for u in unavailable:
                 st.write(f"- {u['name']}: {u.get('error')}")
 
-        st.info("若某台需要登入驗證，請在上方上傳 cookies.txt 並重新按載入。")
+        st.info("若某台需要登入驗證，請上傳 cookies.txt 並重新整理頁面以讓伺服器抓取帶 cookies 的 m3u8。")
 
+# 小提示：若要強制重新抓取（例如上傳 cookies 後），使用者可按瀏覽器重新整理
