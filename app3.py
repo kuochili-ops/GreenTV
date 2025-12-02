@@ -1,81 +1,158 @@
 
 import streamlit as st
 from yt_dlp import YoutubeDL
+import tempfile
+import os
 import uuid
-import json
 
-st.set_page_config(page_title="YouTube m3u8 播放器", layout="wide")
-st.title("YouTube m3u8 播放器")
+# 頁面設定
+st.set_page_config(page_title="YouTube m3u8 產生器", layout="wide")
+st.title("YouTube 高畫質 m3u8 產生器 + 播放器")
+st.write("輸入 YouTube 影片或播放清單網址，產生高畫質 m3u8 串流連結，並可直接播放。")
 
-urls_input = st.text_area("請輸入 YouTube 影片或播放清單連結（每行一個）")
-start_button = st.button("產生播放清單")
+# 使用者輸入
+urls_input = st.text_area("貼上 YouTube 影片或播放清單網址（每行一個）")
+uploaded_cookies = st.file_uploader("（選擇性）上傳 cookies.txt（Netscape 格式）", type=["txt"])
 
-def fetch_info(url):
-    ydl_opts = {"quiet": True, "skip_download": True, "no_warnings": True}
-    with YoutubeDL(ydl_opts) as ydl:
+# 抓取影片資訊
+def fetch_info(url, cookiefile=None):
+    opts = {
+        "skip_download": True,
+        "quiet": True,
+        "extract_flat": False,
+        "socket_timeout": 30,
+    }
+    if cookiefile:
+        opts["cookiefile"] = cookiefile
+    with YoutubeDL(opts) as ydl:
         return ydl.extract_info(url, download=False)
 
+# 選擇最佳 m3u8 格式
 def choose_best_m3u8(formats):
-    candidates = [f for f in formats if "m3u8" in (f.get("protocol") or "") or "hls" in (f.get("protocol") or "")]
+    candidates = []
+    for f in formats:
+        proto = (f.get("protocol") or "").lower()
+        ext = (f.get("ext") or "").lower()
+        note = (f.get("format_note") or "").lower()
+        if "m3u8" in proto or ext == "m3u8" or "hls" in proto or "hls" in note:
+            candidates.append(f)
     if not candidates:
         return None
-    return sorted(candidates, key=lambda f: (f.get("height") or 0), reverse=True)[0]
+    return sorted(candidates, key=lambda f: (f.get("height", 0), f.get("tbr", 0)), reverse=True)[0]
 
-playlist = []
-
-if start_button and urls_input.strip():
+# 按鈕觸發
+if st.button("開始解析"):
     urls = [u.strip() for u in urls_input.splitlines() if u.strip()]
-    st.info("正在解析，請稍候...")
-    for url in urls:
-        try:
-            info = fetch_info(url)
-            best = choose_best_m3u8(info.get("formats", []))
-            if best:
-                playlist.append({"title": info.get("title"), "url": best["url"]})
-        except Exception as e:
-            st.warning(f"解析失敗：{url}，原因：{e}")
+    if not urls:
+        st.warning("請輸入至少一個網址")
+    else:
+        cookiefile_path = None
+        if uploaded_cookies:
+            tmp = tempfile.NamedTemporaryFile(delete=False)
+            tmp.write(uploaded_cookies.getbuffer())
+            tmp.close()
+            cookiefile_path = tmp.name
+            st.info("已上傳 cookies，解析時會使用它。")
 
-if playlist:
-    st.success(f"成功解析 {len(playlist)} 個影片")
-    player_id = "player_" + uuid.uuid4().hex[:8]
+        results = []
+        for u in urls:
+            try:
+                info = fetch_info(u, cookiefile=cookiefile_path)
+                entries = info["entries"] if "entries" in info else [info]
+                for e in entries:
+                    best = choose_best_m3u8(e.get("formats", []))
+                    results.append({
+                        "title": e.get("title"),
+                        "m3u8": best.get("url") if best else None
+                    })
+            except Exception as ex:
+                results.append({"title": u, "m3u8": None, "error": str(ex)})
 
-    # ✅ 使用 {{ }} 保留 JS 大括號
-    html = f"""
-<div style="text-align:center;">
-  <video id="{player_id}" controls autoplay style="width:100%;max-width:960px;background:black;"></video>
-  <ul style="list-style:none;padding:0;">
-"""
-    for i, item in enumerate(playlist):
-        html += f'<li style="cursor:pointer;color:#007bff;" onclick="gotoIndex({i})">{item["title"]}</li>'
-    html += "</ul></div>"
+        if cookiefile_path and os.path.exists(cookiefile_path):
+            os.remove(cookiefile_path)
 
-    html += f"""
-<script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js"></script>
-<script>
-const list = {json.dumps(playlist)};
-let idx = 0;
-const video = document.getElementById('{player_id}');
+        # 顯示結果
+        playable = [r for r in results if r["m3u8"]]
+        unavailable = [r for r in results if not r["m3u8"]]
 
-function attachHls(url) {{
-    if(video.canPlayType('application/vnd.apple.mpegurl')) {{
-        video.src = url;
-    }} else if(Hls.isSupported()) {{
-        if(window._hls_instance){{window._hls_instance.destroy();}}
-        const hls = new Hls();
-        window._hls_instance = hls;
-        hls.loadSource(url);
-        hls.attachMedia(video);
-    }} else {{
-        video.src = url;
-    }}
-}}
+        if playable:
+            st.subheader("✅ 可播放影片清單")
+            player_id = "player_" + uuid.uuid4().hex[:8]
+            player_list = [{"name": r["title"], "url": r["m3u8"]} for r in playable]
 
-function gotoIndex(newIdx) {{
-    idx = newIdx;
-    attachHls(list[idx].url);
-}}
+            # HTML 播放器
+            html = f"""
+            <div style="display:flex;flex-direction:column;align-items:center;">
+              <video id="{player_id}" controls autoplay playsinline style="width:100%;max-width:960px;height:auto;background:black;"></video>
+              <div style="margin-top:16px;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:bold;">
+                <div id="{player_id}_prev" style="cursor:pointer;color:#007bff;margin-right:40px;">{player_list[-1]['name']}</div>
+                <div id="{player_id}_current" style="margin:0 40px;color:red;-webkit-text-stroke:1px white;text-shadow:0 0 2px white;font-weight:bold;">
+                    {player_list[0]['name']}
+                </div>
+                <div id="{player_id}_next" style="cursor:pointer;color:#007bff;margin-left:40px;">{player_list[1]['name']}</div>
+              </div>
+            </div>
 
-attachHls(list[0].url);
-</script>
-"""
-    st.components.v1.html(html, height=600)
+            <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js"></script>
+            <script>
+            (function(){{
+                const list = {player_list!r};
+                let idx = 0;
+                const video = document.getElementById("{player_id}");
+                const prevName = document.getElementById("{player_id}_prev");
+                const nextName = document.getElementById("{player_id}_next");
+                const currentName = document.getElementById("{player_id}_current");
+
+                function updateUI(){{
+                    prevName.innerText = list[(idx-1+list.length)%list.length].name;
+                    currentName.innerText = list[idx].name;
+                    nextName.innerText = list[(idx+1)%list.length].name;
+                }}
+
+                function attachHls(url){{
+                    if(video.canPlayType('application/vnd.apple.mpegurl')){{
+                        video.src = url;
+                    }} else if(Hls.isSupported()){{
+                        if(window._hls_instance){{window._hls_instance.destroy();}}
+                        const hls = new Hls();
+                        window._hls_instance = hls;
+                        hls.loadSource(url);
+                        hls.attachMedia(video);
+                    }} else {{
+                        video.src = url;
+                    }}
+                }}
+
+                async function loadSrc(url){{
+                    video.muted = false;
+                    attachHls(url);
+                    try{{await video.play();}}catch(e){{}}
+                }}
+
+                function gotoIndex(newIdx){{
+                    idx = (newIdx+list.length)%list.length;
+                    updateUI();
+                    loadSrc(list[idx].url);
+                }}
+
+                prevName.addEventListener('click', () => gotoIndex(idx-1));
+                nextName.addEventListener('click', () => gotoIndex(idx+1));
+
+                document.addEventListener('keydown', e => {{
+                    if(e.key==="ArrowLeft") gotoIndex(idx-1);
+                    if(e.key==="ArrowRight") gotoIndex(idx+1);
+                }});
+
+                updateUI();
+                loadSrc(list[0].url);
+            }})();
+            </script>
+            """
+            st.components.v1.html(html, height=700)
+
+        if unavailable:
+            st.subheader("❌ 無法取得 m3u8 的影片")
+            for u in unavailable:
+                st.write(f"- {u['title']} → {u.get('error', '找不到 HLS 格式')}")
+
+        st.info("若影片需要登入驗證，請上傳 cookies.txt 並重新解析。")
