@@ -2,7 +2,6 @@
 import streamlit as st
 from yt_dlp import YoutubeDL
 import uuid
-import random
 
 # 頁面設定
 st.set_page_config(page_title="YouTube m3u8 播放器", layout="wide")
@@ -61,7 +60,6 @@ if start_button and urls_input.strip():
             if "entries" in info:  # Playlist 或 Radio
                 for entry in info["entries"]:
                     try:
-                        # Radio 清單 entry 可能只有 id，需要組成完整 URL
                         entry_url = entry.get("url") or f"https://www.youtube.com/watch?v={entry.get('id')}"
                         sub_info = fetch_info(entry_url)
                         best = choose_best_m3u8(sub_info.get("formats", []))
@@ -182,7 +180,7 @@ if playlist:
 
     st.components.v1.html(html, height=800)
 
-else:
+elif start_button and urls_input.strip():
     st.warning("所有影片都失效或無法解析，請檢查連結或換另一個播放清單。")
     if failed_list:
         st.table(failed_list)
