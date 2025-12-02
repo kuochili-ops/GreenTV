@@ -39,6 +39,7 @@ if playlist:
     st.success(f"成功解析 {len(playlist)} 個影片")
     player_id = "player_" + uuid.uuid4().hex[:8]
 
+    # ✅ 使用 {{ }} 保留 JS 大括號
     html = f"""
 <div style="text-align:center;">
   <video id="{player_id}" controls autoplay style="width:100%;max-width:960px;background:black;"></video>
@@ -55,25 +56,26 @@ const list = {json.dumps(playlist)};
 let idx = 0;
 const video = document.getElementById('{player_id}');
 
-function attachHls(url){
-    if(video.canPlayType('application/vnd.apple.mpegurl')){
+function attachHls(url) {{
+    if(video.canPlayType('application/vnd.apple.mpegurl')) {{
         video.src = url;
-    } else if(Hls.isSupported()){
-        if(window._hls_instance){window._hls_instance.destroy();}
+    }} else if(Hls.isSupported()) {{
+        if(window._hls_instance){{window._hls_instance.destroy();}}
         const hls = new Hls();
         window._hls_instance = hls;
         hls.loadSource(url);
         hls.attachMedia(video);
-    } else {
+    }} else {{
         video.src = url;
-    }
-}
+    }}
+}}
 
-function gotoIndex(newIdx){
+function gotoIndex(newIdx) {{
     idx = newIdx;
     attachHls(list[idx].url);
-}
+}}
 
 attachHls(list[0].url);
 </script>
 """
+    st.components.v1.html(html, height=600)
