@@ -80,7 +80,7 @@ if st.button("開始解析"):
             player_id = "player_" + uuid.uuid4().hex[:8]
             player_list = [{"name": r["title"], "url": r["m3u8"]} for r in playable]
 
-            # HTML 播放器
+            # HTML 播放器（修正 script 標籤）
             html = f"""
             <div style="display:flex;flex-direction:column;align-items:center;">
               <video id="{player_id}" controls autoplay playsinline style="width:100%;max-width:960px;height:auto;background:black;"></video>
@@ -155,4 +155,3 @@ if st.button("開始解析"):
             for u in unavailable:
                 st.write(f"- {u['title']} → {u.get('error', '找不到 HLS 格式')}")
 
-        st.info("若影片需要登入驗證，請上傳 cookies.txt 並重新解析。")
