@@ -18,15 +18,17 @@ st.markdown("<h1 style='margin-bottom:6px;'>🎵 YouTube 點唱機（HTML 嵌入
 st.write("上方為固定操作列（播放 / 加入佇列 / 移除），下方為可滑動候選清單；播放器使用 HLS（m3u8）。")
 
 # -------------------------------
-# Input area (collapsed)
+# Input area (collapsed) - simplified (removed parallel/batch/debug controls)
 # -------------------------------
 with st.expander("輸入 YouTube 影片或播放清單網址（每行一個）", expanded=False):
     urls_input = st.text_area("網址（每行一個）", height=120)
     uploaded_cookies = st.file_uploader("（選擇性）上傳 cookies.txt（Netscape 格式）", type=["txt"])
-    max_workers = st.number_input("並行解析影片數（建議 1-4）", min_value=1, max_value=8, value=2, step=1)
-    batch_size = st.number_input("分批處理大小（預設 6）", min_value=1, max_value=32, value=6, step=1)
-    debug_mode = st.checkbox("顯示詳細錯誤（開發用）", value=False)
     parse_btn = st.button("開始解析並產生清單")
+
+# Default internal parameters (fixed)
+_default_max_workers = 2
+_default_batch_size = 6
+_debug_mode = False
 
 # -------------------------------
 # yt-dlp helper functions
@@ -88,7 +90,7 @@ def fetch_best_m3u8_for_video(video_url, cookiefile=None, timeout=25, quiet=True
         else:
             return {"title": info.get("title") or video_url, "url": None, "error": "找不到 m3u8/HLS 格式"}
     except Exception as e:
-        if debug_mode:
+        if _debug_mode:
             return {"title": video_url, "url": None, "error": f"{str(e)}\n{traceback.format_exc()}"}
         return {"title": video_url, "url": None, "error": str(e)}
 
@@ -97,7 +99,7 @@ def export_m3u8_list(results):
     return "\n".join(lines)
 
 # -------------------------------
-# Parse button logic
+# Parse button logic (uses fixed defaults)
 # -------------------------------
 if parse_btn:
     urls = [u.strip() for u in urls_input.splitlines() if u.strip()]
@@ -118,14 +120,14 @@ if parse_btn:
             for u in urls:
                 if "playlist" in u or "list=" in u:
                     try:
-                        flat = fetch_playlist_entries_flat(u, cookiefile=cookiefile_path, quiet=not debug_mode)
+                        flat = fetch_playlist_entries_flat(u, cookiefile=cookiefile_path, quiet=not _debug_mode)
                         if not flat:
                             st.warning(f"Playlist {u} 未列出任何條目或為私人/受限。")
                         for e in flat:
                             if e.get("url"):
                                 to_process.append({"title": e.get("title"), "url": e.get("url")})
                     except Exception as e:
-                        if debug_mode:
+                        if _debug_mode:
                             st.error(f"列出 playlist 失敗：{u}\n{traceback.format_exc()}")
                         else:
                             st.warning(f"列出 playlist 失敗：{u} → {e}")
@@ -141,17 +143,20 @@ if parse_btn:
             overall_progress = st.progress(0)
             status = st.empty()
             done = 0
+            # use fixed defaults
+            max_workers = _default_max_workers
+            batch_size = _default_batch_size
             for batch_start in range(0, total_estimate, int(batch_size)):
                 batch = to_process[batch_start: batch_start + int(batch_size)]
                 status.text(f"處理第 {batch_start + 1} 到 {batch_start + len(batch)} 支影片...")
                 with concurrent.futures.ThreadPoolExecutor(max_workers=int(max_workers)) as ex:
-                    future_to_item = {ex.submit(fetch_best_m3u8_for_video, item["url"], cookiefile_path, 25, not debug_mode): item for item in batch}
+                    future_to_item = {ex.submit(fetch_best_m3u8_for_video, item["url"], cookiefile_path, 25, not _debug_mode): item for item in batch}
                     for fut in concurrent.futures.as_completed(future_to_item):
                         item = future_to_item[fut]
                         try:
                             res = fut.result()
                         except Exception as exc:
-                            if debug_mode:
+                            if _debug_mode:
                                 res = {"title": item.get("title") or item.get("url"), "url": None, "error": f"{str(exc)}\n{traceback.format_exc()}"}
                             else:
                                 res = {"title": item.get("title") or item.get("url"), "url": None, "error": str(exc)}
@@ -206,6 +211,7 @@ init_selected = selected_index if selected_index is not None else 0
 
 # -------------------------------
 # HTML template (ordinary triple-quoted string, placeholders {JS_LIST} and {INIT_SELECTED})
+# - top-panel background set to opaque; selected item style adjusted
 # -------------------------------
 html_template = '''
 <!doctype html>
@@ -218,14 +224,16 @@ html_template = '''
   .wrap { display:flex; gap:18px; padding:12px; box-sizing:border-box; }
   .left { width:36%; min-width:260px; background:#0f1724; padding:12px; border-radius:10px; box-sizing:border-box; }
   .right { flex:1; background:linear-gradient(180deg,#071021,#0b1b2b); padding:18px; border-radius:10px; box-sizing:border-box; color:#fff; }
-  .top-panel { position:sticky; top:12px; background:rgba(255,255,255,0.02); padding:10px; border-radius:8px; margin-bottom:12px; }
+  /* top-panel now opaque to avoid overlap with list text */
+  .top-panel { position:sticky; top:12px; background:#0b2a4a; padding:12px; border-radius:8px; margin-bottom:12px; color:#ffffff; }
   .scroll-area { max-height:520px; overflow:auto; padding-right:6px; }
-  .song-item { padding:10px; border-radius:6px; margin-bottom:8px; background:rgba(255,255,255,0.02); display:flex; align-items:center; justify-content:space-between; }
+  .song-item { padding:10px; border-radius:6px; margin-bottom:8px; background:rgba(255,255,255,0.02); display:flex; align-items:center; justify-content:space-between; color:#e6eef8; }
   .song-meta { flex:1; padding-right:12px; color:#e6eef8; }
   .queue-item { padding:6px 8px; border-radius:6px; background:rgba(255,255,255,0.02); margin-bottom:6px; color:#e6eef8; }
   .btn { padding:8px 12px; border-radius:6px; background:#1f6feb; color:white; border:none; cursor:pointer; }
   .small-btn { padding:6px 8px; border-radius:6px; background:transparent; border:1px solid rgba(255,255,255,0.06); color:#cfe8ff; cursor:pointer; }
-  .selected { outline:2px solid rgba(31,111,235,0.25); }
+  /* selected item: use solid background to avoid text overlap */
+  .selected { background:#1f6feb; color:#ffffff; outline: none; }
   video { background:black; border-radius:6px; }
   @media (max-width:900px) {
     .wrap { flex-direction:column; }
