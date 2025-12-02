@@ -407,10 +407,17 @@ with col_a:
     if st.button("下載 m3u8 清單"):
         st.download_button("下載 m3u8 清單", export_m3u8_list(playable), file_name="m3u8_list.txt")
 with col_b:
+    # 安全的清空所有資料按鈕（避免在某些環境呼叫不存在的 experimental_rerun）
     if st.button("清空所有資料"):
         for k in ["playable", "unavailable", "queue", "selected_index", "selected_m3u8"]:
             if k in st.session_state:
                 st.session_state.pop(k, None)
-        st.experimental_rerun()
+        try:
+            if hasattr(st, "experimental_rerun"):
+                st.experimental_rerun()
+            else:
+                st.stop()
+        except Exception:
+            st.stop()
 with col_c:
     st.write("提示：滑動清單點「選擇」，再用上方操作列控制播放或加入佇列。")
