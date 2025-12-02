@@ -123,9 +123,11 @@ else:
       <video id="{player_id}" controls autoplay playsinline style="width:100%;max-width:960px;height:auto;background:black;"></video>
 
       <!-- 三欄顯示：左(上一頻道) 中(目前頻道) 右(下一頻道) -->
-      <div style="margin-top:16px;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:bold;">
+      <div style="margin-top:16px;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:bold;">
         <div id="{player_id}_prev" style="cursor:pointer;color:#007bff;margin-right:40px;">{player_list[-1]['name']}</div>
-        <div id="{player_id}_current" style="margin:0 40px;">{player_list[0]['name']}</div>
+        <div id="{player_id}_current" style="margin:0 40px;color:red;-webkit-text-stroke:1px white;text-shadow:0 0 2px white;font-weight:bold;">
+            {player_list[0]['name']}
+        </div>
         <div id="{player_id}_next" style="cursor:pointer;color:#007bff;margin-left:40px;">{player_list[1]['name']}</div>
       </div>
     </div>
