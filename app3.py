@@ -27,6 +27,7 @@ def fetch_info(url: str, extract_flat=False):
         "skip_download": True,
         "extract_flat": extract_flat,
         "no_warnings": True,
+        "socket_timeout": 15,  # 超時設定
     }
     with YoutubeDL(ydl_opts) as ydl:
         return ydl.extract_info(url, download=False)
@@ -51,9 +52,15 @@ failed_list = []
 if start_button and urls_input.strip():
     urls = [u.strip() for u in urls_input.splitlines() if u.strip()]
     st.info("正在解析 YouTube 連結，請稍候...")
+    progress = st.progress(0)
+    total = len(urls)
+    count = 0
+
     for url in urls:
+        count += 1
+        progress.progress(count / total)
+        st.write(f"正在解析：{url}")
         try:
-            # 如果是 Radio 清單 (list=RD)，先用 extract_flat=True
             extract_flat = "list=RD" in url
             info = fetch_info(url, extract_flat=extract_flat)
 
@@ -183,4 +190,3 @@ if playlist:
 elif start_button and urls_input.strip():
     st.warning("所有影片都失效或無法解析，請檢查連結或換另一個播放清單。")
     if failed_list:
-        st.table(failed_list)
