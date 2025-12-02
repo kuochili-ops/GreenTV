@@ -12,12 +12,12 @@ import traceback
 # -------------------------------
 # 頁面設定
 # -------------------------------
-st.set_page_config(page_title="YouTube 點唱機（m3u8 播放器）", layout="wide")
-st.markdown("<h1 style='margin-bottom:6px;'>🎵 YouTube 點唱機（m3u8 播放器）</h1>", unsafe_allow_html=True)
-st.write("貼上 YouTube 影片或播放清單網址 → 產生高畫質 m3u8 串流，左側選歌、右側像點唱機一樣播放。")
+st.set_page_config(page_title="YouTube 點唱機（滑動選單）", layout="wide")
+st.markdown("<h1 style='margin-bottom:6px;'>🎵 YouTube 點唱機（滑動選單）</h1>", unsafe_allow_html=True)
+st.write("貼上 YouTube 影片或播放清單網址 → 產生高畫質 m3u8 串流，左側為單一可滑動視窗的候選清單，點選項目可播放 / 加入佇列 / 移除。")
 
 # -------------------------------
-# 小樣式（讓介面像點唱機）
+# CSS（滑動選單樣式）
 # -------------------------------
 st.markdown(
     """
@@ -25,11 +25,13 @@ st.markdown(
     .jukebox { display:flex; gap:18px; align-items:flex-start; }
     .left-panel { width:36%; background:#0f1724; color:#e6eef8; padding:14px; border-radius:10px; }
     .right-panel { flex:1; background:linear-gradient(180deg,#071021,#0b1b2b); color:#fff; padding:18px; border-radius:10px; }
-    .song-item { padding:8px 10px; border-radius:6px; margin-bottom:6px; background:rgba(255,255,255,0.02); }
-    .song-item:hover { background:rgba(255,255,255,0.04); }
-    .cover { width:100%; max-width:420px; border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.6); }
-    .controls button { margin-right:8px; }
-    .queue-item { padding:6px 8px; border-radius:6px; background:rgba(255,255,255,0.02); margin-bottom:6px; }
+    .scroll-area { max-height:520px; overflow:auto; padding-right:6px; }
+    .song-item { padding:10px; border-radius:6px; margin-bottom:8px; background:rgba(255,255,255,0.02); display:flex; align-items:center; justify-content:space-between; }
+    .song-meta { flex:1; padding-right:12px; color:#e6eef8; }
+    .song-actions { display:flex; gap:6px; }
+    .queue-item { padding:6px 8px; border-radius:6px; background:rgba(255,255,255,0.02); margin-bottom:6px; color:#e6eef8; }
+    .small-btn { background:transparent;border:1px solid rgba(255,255,255,0.06);color:#cfe8ff;padding:6px 8px;border-radius:6px;cursor:pointer; }
+    .small-btn:hover { background:rgba(255,255,255,0.02); }
     </style>
     """,
     unsafe_allow_html=True,
@@ -195,7 +197,6 @@ if parse_btn:
 
         st.session_state["playable"] = playable
         st.session_state["unavailable"] = unavailable
-        # 初始化 jukebox 狀態
         if "queue" not in st.session_state:
             st.session_state["queue"] = []
         if "selected_m3u8" not in st.session_state and playable:
@@ -221,28 +222,35 @@ else:
 col1, col2 = st.columns([3,7])
 with col1:
     st.markdown("<div class='left-panel'>", unsafe_allow_html=True)
-    st.markdown("### 🎶 歌單")
+    st.markdown("### 🎶 候選清單（滑動視窗）")
     if not playable:
         st.info("目前歌單為空。請先貼入網址並解析。")
     else:
-        # 顯示過濾後的歌單（簡潔）
+        # 開始滑動區塊
+        st.markdown('<div class="scroll-area">', unsafe_allow_html=True)
+        # 顯示過濾後的歌單（在單一可滑動視窗內）
         for i, p in enumerate(filtered):
-            idx = playable.index(p)  # 原始索引
-            st.markdown(f"<div class='song-item'>", unsafe_allow_html=True)
-            st.write(f"**{idx+1}. {p.get('title')[:80]}**")
-            cols = st.columns([3,1,1])
+            # 找到原始索引（在 playable 中）
+            try:
+                idx = playable.index(p)
+            except ValueError:
+                idx = i
+            # 每個項目用一個容器顯示標題與按鈕
+            st.markdown("<div class='song-item'>", unsafe_allow_html=True)
+            # 左側標題
+            st.markdown(f"<div class='song-meta'>{idx+1}. {p.get('title')[:120]}</div>", unsafe_allow_html=True)
+            # 右側按鈕（使用 Streamlit 按鈕以保留互動）
+            cols = st.columns([1,1,1])
             with cols[0]:
                 if st.button("播放", key=f"play_{idx}"):
                     st.session_state["selected_m3u8"] = {"index": idx, "title": p["title"], "url": p["url"]}
             with cols[1]:
                 if st.button("加入佇列", key=f"queue_add_{idx}"):
-                    # 加入佇列（避免重複）
                     if p not in queue:
                         queue.append(p)
                         st.session_state["queue"] = queue
             with cols[2]:
                 if st.button("移除", key=f"remove_{idx}"):
-                    # 從 playable 中移除（並更新 session）
                     new_playable = [x for x in playable if x != p]
                     st.session_state["playable"] = new_playable
                     # 若被選中，重設選擇
@@ -251,6 +259,7 @@ with col1:
                         if new_playable:
                             st.session_state["selected_m3u8"] = {"index": 0, "title": new_playable[0]["title"], "url": new_playable[0]["url"]}
             st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)  # close scroll-area
 
     st.markdown("---")
     st.markdown("### ▶️ 播放佇列")
@@ -258,7 +267,7 @@ with col1:
         st.write("佇列為空，點「加入佇列」把歌曲放進來。")
     else:
         for qi, q in enumerate(queue):
-            st.markdown(f"<div class='queue-item'>{qi+1}. {q.get('title')[:80]}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='queue-item'>{qi+1}. {q.get('title')[:100]}</div>", unsafe_allow_html=True)
         qcols = st.columns([1,1,1])
         with qcols[0]:
             if st.button("清空佇列"):
@@ -283,132 +292,120 @@ with col2:
     # 點唱機顯示區
     if not selected:
         st.markdown("<h3 style='color:#cfe8ff;'>尚未選擇歌曲</h3>", unsafe_allow_html=True)
-        st.write("請在左側歌單選擇一首或加入佇列後播放。")
+        st.write("請在左側候選清單選擇一首或加入佇列後播放。")
     else:
         sel_index = selected.get("index", 0)
-        # 安全檢查索引
         if sel_index < 0 or sel_index >= len(playable):
             sel_index = 0
-            st.session_state["selected_m3u8"] = {"index": 0, "title": playable[0]["title"], "url": playable[0]["url"]}
+            if playable:
+                st.session_state["selected_m3u8"] = {"index": 0, "title": playable[0]["title"], "url": playable[0]["url"]}
 
-        sel_item = playable[sel_index]
-        st.markdown(f"<h2 style='margin-bottom:6px;color:#fff;'>{sel_item.get('title')}</h2>", unsafe_allow_html=True)
-        # cover placeholder
-        st.image("https://placehold.co/640x360/0b1b2b/ffffff?text=YouTube+Cover", caption="", use_column_width=False, width=640, clamp=True)
+        if playable:
+            sel_item = playable[sel_index]
+            st.markdown(f"<h2 style='margin-bottom:6px;color:#fff;'>{sel_item.get('title')}</h2>", unsafe_allow_html=True)
+            st.image("https://placehold.co/640x360/0b1b2b/ffffff?text=YouTube+Cover", caption="", use_column_width=False, width=640, clamp=True)
 
-        # Player controls and settings
-        control_cols = st.columns([1,1,1,2,2])
-        with control_cols[0]:
-            if st.button("◀ 上一首"):
-                # 找到上一首索引
-                new_idx = (sel_index - 1) % len(playable) if playable else 0
-                st.session_state["selected_m3u8"] = {"index": new_idx, "title": playable[new_idx]["title"], "url": playable[new_idx]["url"]}
-        with control_cols[1]:
-            # Play/Pause handled by JS; here we provide a "重新載入"按鈕來觸發前端播放
-            if st.button("▶ 播放"):
-                st.session_state["selected_m3u8"] = {"index": sel_index, "title": sel_item["title"], "url": sel_item["url"]}
-        with control_cols[2]:
-            if st.button("下一首 ▶"):
-                new_idx = (sel_index + 1) % len(playable) if playable else 0
-                st.session_state["selected_m3u8"] = {"index": new_idx, "title": playable[new_idx]["title"], "url": playable[new_idx]["url"]}
-        with control_cols[3]:
-            loop_mode = st.checkbox("循環播放", value=st.session_state.get("loop", False))
-            st.session_state["loop"] = loop_mode
-        with control_cols[4]:
-            shuffle_mode = st.checkbox("隨機播放", value=st.session_state.get("shuffle", False))
-            st.session_state["shuffle"] = shuffle_mode
+            control_cols = st.columns([1,1,1,2,2])
+            with control_cols[0]:
+                if st.button("◀ 上一首"):
+                    new_idx = (sel_index - 1) % len(playable) if playable else 0
+                    st.session_state["selected_m3u8"] = {"index": new_idx, "title": playable[new_idx]["title"], "url": playable[new_idx]["url"]}
+            with control_cols[1]:
+                if st.button("▶ 播放"):
+                    st.session_state["selected_m3u8"] = {"index": sel_index, "title": sel_item["title"], "url": sel_item["url"]}
+            with control_cols[2]:
+                if st.button("下一首 ▶"):
+                    new_idx = (sel_index + 1) % len(playable) if playable else 0
+                    st.session_state["selected_m3u8"] = {"index": new_idx, "title": playable[new_idx]["title"], "url": playable[new_idx]["url"]}
+            with control_cols[3]:
+                loop_mode = st.checkbox("循環播放", value=st.session_state.get("loop", False))
+                st.session_state["loop"] = loop_mode
+            with control_cols[4]:
+                shuffle_mode = st.checkbox("隨機播放", value=st.session_state.get("shuffle", False))
+                st.session_state["shuffle"] = shuffle_mode
 
-        # Volume slider
-        vol = st.slider("音量", min_value=0, max_value=100, value=80, step=1, key="volume_slider")
+            vol = st.slider("音量", min_value=0, max_value=100, value=80, step=1, key="volume_slider")
 
-        # Download / export
-        dl_cols = st.columns([1,1,1])
-        with dl_cols[0]:
-            if st.button("下載 m3u8 清單"):
-                st.download_button("下載", export_m3u8_list(playable), file_name="m3u8_list.txt")
-        with dl_cols[1]:
-            if st.button("從佇列播放下一首"):
-                if queue:
-                    nxt = queue.pop(0)
-                    st.session_state["selected_m3u8"] = {"index": playable.index(nxt) if nxt in playable else 0, "title": nxt["title"], "url": nxt["url"]}
-                    st.session_state["queue"] = queue
-        with dl_cols[2]:
-            if st.button("移除目前歌曲"):
-                # 從 playable 中移除
-                new_playable = [x for x in playable if x != sel_item]
-                st.session_state["playable"] = new_playable
-                st.session_state.pop("selected_m3u8", None)
-                if new_playable:
-                    st.session_state["selected_m3u8"] = {"index": 0, "title": new_playable[0]["title"], "url": new_playable[0]["url"]}
+            dl_cols = st.columns([1,1,1])
+            with dl_cols[0]:
+                if st.button("下載 m3u8 清單"):
+                    st.download_button("下載", export_m3u8_list(playable), file_name="m3u8_list.txt")
+            with dl_cols[1]:
+                if st.button("從佇列播放下一首"):
+                    if queue:
+                        nxt = queue.pop(0)
+                        st.session_state["selected_m3u8"] = {"index": playable.index(nxt) if nxt in playable else 0, "title": nxt["title"], "url": nxt["url"]}
+                        st.session_state["queue"] = queue
+            with dl_cols[2]:
+                if st.button("移除目前歌曲"):
+                    new_playable = [x for x in playable if x != sel_item]
+                    st.session_state["playable"] = new_playable
+                    st.session_state.pop("selected_m3u8", None)
+                    if new_playable:
+                        st.session_state["selected_m3u8"] = {"index": 0, "title": new_playable[0]["title"], "url": new_playable[0]["url"]}
 
-        # 前端播放器（HLS）
-        player_id = "player_" + uuid.uuid4().hex[:8]
-        js_list = [{"name": p["title"], "url": p["url"]} for p in playable]
+            # 前端播放器（HLS）
+            player_id = "player_" + uuid.uuid4().hex[:8]
+            js_list = [{"name": p["title"], "url": p["url"]} for p in playable]
 
-        # Build HTML/JS player. It will read volume from a query param set by Streamlit rerun.
-        html = f'''
-        <div style="margin-top:12px;">
-          <video id="{player_id}" controls playsinline style="width:100%;max-width:960px;height:auto;background:black;"></video>
-        </div>
+            html = f'''
+            <div style="margin-top:12px;">
+              <video id="{player_id}" controls playsinline style="width:100%;max-width:960px;height:auto;background:black;"></video>
+            </div>
 
-        <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js"></script>
-        <script>
-        (function(){{
-            const list = {js_list!r};
-            let idx = {sel_index};
-            const video = document.getElementById("{player_id}");
-            const volume = {st.session_state.get("volume_slider", 80)} / 100.0;
-            video.volume = volume;
+            <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js"></script>
+            <script>
+            (function(){{
+                const list = {js_list!r};
+                let idx = {sel_index};
+                const video = document.getElementById("{player_id}");
+                const volume = {st.session_state.get("volume_slider", 80)} / 100.0;
+                video.volume = volume;
 
-            function attachHls(url) {{
-                if (!url) return;
-                if (video.canPlayType('application/vnd.apple.mpegurl')) {{
-                    video.src = url;
-                }} else if (Hls.isSupported()) {{
-                    if (window._hls_instance) {{
-                        try {{ window._hls_instance.destroy(); }} catch(e){{}} 
-                        window._hls_instance = null;
+                function attachHls(url) {{
+                    if (!url) return;
+                    if (video.canPlayType('application/vnd.apple.mpegurl')) {{
+                        video.src = url;
+                    }} else if (Hls.isSupported()) {{
+                        if (window._hls_instance) {{
+                            try {{ window._hls_instance.destroy(); }} catch(e){{}} 
+                            window._hls_instance = null;
+                        }}
+                        const hls = new Hls();
+                        window._hls_instance = hls;
+                        hls.loadSource(url);
+                        hls.attachMedia(video);
+                    }} else {{
+                        video.src = url;
                     }}
-                    const hls = new Hls();
-                    window._hls_instance = hls;
-                    hls.loadSource(url);
-                    hls.attachMedia(video);
-                }} else {{
-                    video.src = url;
                 }}
-            }}
 
-            function loadAndPlay(i) {{
-                if (!list || list.length === 0) return;
-                idx = i % list.length;
-                attachHls(list[idx].url);
-                setTimeout(()=>{{ try{{ video.play(); }}catch(e){{}} }}, 300);
-            }}
-
-            // initial load
-            loadAndPlay(idx);
-
-            // handle ended event for queue/loop/shuffle
-            video.addEventListener('ended', function() {{
-                const loop = {str(st.session_state.get("loop", False)).lower()};
-                const shuffle = {str(st.session_state.get("shuffle", False)).lower()};
-                if (shuffle) {{
-                    idx = Math.floor(Math.random() * list.length);
-                }} else {{
-                    idx = (idx + 1) % list.length;
+                function loadAndPlay(i) {{
+                    if (!list || list.length === 0) return;
+                    idx = i % list.length;
+                    attachHls(list[idx].url);
+                    setTimeout(()=>{{ try{{ video.play(); }}catch(e){{}} }}, 300);
                 }}
-                if (!loop && idx === 0 && !shuffle) {{
-                    // reached end and not looping: do nothing
-                    return;
-                }}
+
                 loadAndPlay(idx);
-            }});
 
-            // expose simple prev/next via DOM events (buttons trigger rerun which updates idx)
-        }})();
-        </script>
-        '''
-        st.components.v1.html(html, height=420)
+                video.addEventListener('ended', function() {{
+                    const loop = {str(st.session_state.get("loop", False)).lower()};
+                    const shuffle = {str(st.session_state.get("shuffle", False)).lower()};
+                    if (shuffle) {{
+                        idx = Math.floor(Math.random() * list.length);
+                    }} else {{
+                        idx = (idx + 1) % list.length;
+                    }}
+                    if (!loop && idx === 0 && !shuffle) {{
+                        return;
+                    }}
+                    loadAndPlay(idx);
+                }});
+            }})();
+            </script>
+            '''
+            st.components.v1.html(html, height=420)
 
     st.markdown("</div>", unsafe_allow_html=True)
 
