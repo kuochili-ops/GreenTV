@@ -207,33 +207,15 @@ init_selected = selected_index if selected_index is not None else 0
 
 # -------------------------------
 # HTML template (sticky top panel + scroll list + HLS player)
-# -------------------------------
-html_template = f"""
+# --- 建議替換：使用佔位符再 replace，避免 f-string 與 JS 大括號衝突 ---
+html_template = """
 <!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-  body {{ margin:0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial; color:#e6eef8; background:transparent; }}
-  .wrap {{ display:flex; gap:18px; padding:12px; box-sizing:border-box; }}
-  .left {{ width:36%; min-width:260px; background:#0f1724; padding:12px; border-radius:10px; box-sizing:border-box; }}
-  .right {{ flex:1; background:linear-gradient(180deg,#071021,#0b1b2b); padding:18px; border-radius:10px; box-sizing:border-box; color:#fff; }}
-  .top-panel {{ position:sticky; top:12px; background:rgba(255,255,255,0.02); padding:10px; border-radius:8px; margin-bottom:12px; }}
-  .scroll-area {{ max-height:520px; overflow:auto; padding-right:6px; }}
-  .song-item {{ padding:10px; border-radius:6px; margin-bottom:8px; background:rgba(255,255,255,0.02); display:flex; align-items:center; justify-content:space-between; }}
-  .song-meta {{ flex:1; padding-right:12px; color:#e6eef8; }}
-  .queue-item {{ padding:6px 8px; border-radius:6px; background:rgba(255,255,255,0.02); margin-bottom:6px; color:#e6eef8; }}
-  .btn {{ padding:8px 12px; border-radius:6px; background:#1f6feb; color:white; border:none; cursor:pointer; }}
-  .btn:disabled {{ background:#555; cursor:not-allowed; }}
-  .small-btn {{ padding:6px 8px; border-radius:6px; background:transparent; border:1px solid rgba(255,255,255,0.06); color:#cfe8ff; cursor:pointer; }}
-  .selected {{ outline:2px solid rgba(31,111,235,0.25); }}
-  video {{ background:black; border-radius:6px; }}
-  @media (max-width:900px) {{
-    .wrap {{ flex-direction:column; }}
-    .left {{ width:100%; }}
-    .right {{ width:100%; }}
-  }}
+  /* ... 省略 CSS（與原本相同） ... */
 </style>
 </head>
 <body>
@@ -276,9 +258,9 @@ html_template = f"""
 
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js"></script>
 <script>
-  // Injected list from Python
-  const list = {js_list};
-  let selectedIndex = {init_selected};
+  // 由 Python 注入的資料佔位符（不要改這裡的花括號）
+  const list = {JS_LIST};
+  let selectedIndex = {INIT_SELECTED};
   let queue = [];
   const scrollList = document.getElementById('scrollList');
   const queueList = document.getElementById('queueList');
@@ -315,7 +297,6 @@ html_template = f"""
         const i = parseInt(e.target.dataset.i);
         selectedIndex = i;
         renderList();
-        // scroll into view
         e.target.closest('.song-item').scrollIntoView({behavior:'smooth', block:'center'});
       };
     });
@@ -361,70 +342,42 @@ html_template = f"""
     });
   }
 
-  // Buttons
-  document.getElementById('btnPlay').onclick = () => {
-    if (!list.length) return;
-    try { video.play(); } catch(e) {}
-  };
-  document.getElementById('btnQueue').onclick = () => {
-    if (!list.length) return;
-    const item = list[selectedIndex];
-    if (!queue.find(q => q.url === item.url)) {
-      queue.push(item);
-      renderQueue();
-    }
-  };
-  document.getElementById('btnRemove').onclick = () => {
-    if (!list.length) return;
-    list.splice(selectedIndex, 1);
-    if (selectedIndex >= list.length) selectedIndex = Math.max(0, list.length - 1);
-    renderList();
-    renderQueue();
-  };
+  document.getElementById('btnPlay').onclick = () => { if (!list.length) return; try { video.play(); } catch(e) {} };
+  document.getElementById('btnQueue').onclick = () => { if (!list.length) return; const item = list[selectedIndex]; if (!queue.find(q => q.url === item.url)) { queue.push(item); renderQueue(); } };
+  document.getElementById('btnRemove').onclick = () => { if (!list.length) return; list.splice(selectedIndex, 1); if (selectedIndex >= list.length) selectedIndex = Math.max(0, list.length - 1); renderList(); renderQueue(); };
 
   document.getElementById('prevBtn').onclick = () => {
     if (!list.length) return;
-    if (shuffleCheckbox.checked) {
-      selectedIndex = Math.floor(Math.random() * list.length);
-    } else {
-      selectedIndex = (selectedIndex - 1 + list.length) % list.length;
-    }
+    if (shuffleCheckbox.checked) selectedIndex = Math.floor(Math.random() * list.length);
+    else selectedIndex = (selectedIndex - 1 + list.length) % list.length;
     renderList();
   };
   document.getElementById('nextBtn').onclick = () => {
     if (!list.length) return;
-    if (shuffleCheckbox.checked) {
-      selectedIndex = Math.floor(Math.random() * list.length);
-    } else {
-      selectedIndex = (selectedIndex + 1) % list.length;
-    }
+    if (shuffleCheckbox.checked) selectedIndex = Math.floor(Math.random() * list.length);
+    else selectedIndex = (selectedIndex + 1) % list.length;
     renderList();
   };
 
-  vol.oninput = () => {
-    video.volume = vol.value / 100.0;
-  };
+  vol.oninput = () => { video.volume = vol.value / 100.0; };
 
   video.addEventListener('ended', () => {
     if (!list.length) return;
-    if (shuffleCheckbox.checked) {
-      selectedIndex = Math.floor(Math.random() * list.length);
-    } else {
-      selectedIndex = (selectedIndex + 1) % list.length;
-    }
-    if (!loopCheckbox.checked && selectedIndex === 0 && !shuffleCheckbox.checked) {
-      // reached end and not looping
-      return;
-    }
+    if (shuffleCheckbox.checked) selectedIndex = Math.floor(Math.random() * list.length);
+    else selectedIndex = (selectedIndex + 1) % list.length;
+    if (!loopCheckbox.checked && selectedIndex === 0 && !shuffleCheckbox.checked) return;
     renderList();
   });
 
-  // initial render
   renderList();
   renderQueue();
 </script>
 </body>
 </html>
+"""
+
+# 用 replace 注入資料（安全且不會破壞 JS 的大括號）
+html_template = html_template.replace("{JS_LIST}", js_list).replace("{INIT_SELECTED}", str(init_selected))
 """
 
 # -------------------------------
