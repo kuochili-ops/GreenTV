@@ -5,12 +5,11 @@ import uuid
 import tempfile
 import os
 from urllib.parse import urlparse
-import requests
 
 # 頁面設定
 st.set_page_config(page_title="綠的電視", layout="wide")
-st.title("自動播放，旋鈕切台")
-st.write("頁面載入後自動從三立新聞開始播放；使用旋鈕、滑動或鍵盤左右鍵切換頻道。若直播需要登入驗證，請上傳 cookies.txt（Netscape 格式）。")
+st.title("自動播放，側面箭頭切台")
+st.write("頁面載入後自動從三立新聞開始播放；使用左右箭頭、鍵盤左右鍵或滑動切換頻道。若直播需要登入驗證，請上傳 cookies.txt（Netscape 格式）。")
 
 # 頻道清單
 CHANNELS = [
@@ -81,7 +80,7 @@ if "tv_channels" not in st.session_state:
     for ch in CHANNELS:
         name = ch["name"]
         url = ch["url"]
-        item = {"name": name, "input_url": url, "error": None, "best_url": None, "height": None}
+        item = {"name": name, "input_url": url, "error": None, "best_url": None}
         if not is_youtube_url(url):
             item["error"] = "非 YouTube 連結"
             results.append(item)
@@ -92,7 +91,6 @@ if "tv_channels" not in st.session_state:
             best = choose_best_m3u8(formats)
             if best:
                 item["best_url"] = best.get("url")
-                item["height"] = best.get("height") or best.get("tbr") or None
             else:
                 item["error"] = "找不到 m3u8/HLS 格式"
         except Exception as e:
@@ -117,22 +115,18 @@ if not playable:
     for u in unavailable:
         st.write(f"- {u['name']}: {u.get('error')}")
 else:
-    player_list = [{"name": c["name"], "url": c["best_url"], "height": c.get("height")} for c in playable]
+    player_list = [{"name": c["name"], "url": c["best_url"]} for c in playable]
     player_id = "player_" + uuid.uuid4().hex[:8]
 
-    # 動態生成 HTML + JS
     html = f"""
     <div style="display:flex;flex-direction:column;align-items:center;">
       <div id="{player_id}_title" style="font-weight:600;margin-bottom:8px;">正在播放：{player_list[0]['name']}</div>
       <video id="{player_id}" controls autoplay playsinline style="width:100%;max-width:960px;height:auto;background:black;"></video>
 
-      <!-- 旋鈕 UI -->
-      <div style="margin-top:16px;display:flex;align-items:center;justify-content:center;">
-        <div id="{player_id}_prev" style="width:100px;text-align:right;color:#666;margin-right:12px;">{player_list[-1]['name']}</div>
-        <div id="{player_id}_knob" style="width:120px;height:120px;border-radius:50%;background:#eee;display:flex;align-items:center;justify-content:center;font-weight:bold;cursor:pointer;">
-          {player_list[0]['name']}
-        </div>
-        <div id="{player_id}_next" style="width:100px;text-align:left;color:#666;margin-left:12px;">{player_list[1]['name']}</div>
+      <!-- 側面箭頭 UI -->
+      <div style="margin-top:16px;display:flex;align-items:center;justify-content:center;font-size:18px;">
+        <div id="{player_id}_prev" style="cursor:pointer;color:#007bff;margin-right:20px;">◀ {player_list[-1]['name']}</div>
+        <div id="{player_id}_next" style="cursor:pointer;color:#007bff;margin-left:20px;">{player_list[1]['name']} ▶</div>
       </div>
     </div>
 
@@ -143,16 +137,13 @@ else:
         let idx = 0;
         const video = document.getElementById("{player_id}");
         const title = document.getElementById("{player_id}_title");
-        const knob = document.getElementById("{player_id}_knob");
         const prevName = document.getElementById("{player_id}_prev");
         const nextName = document.getElementById("{player_id}_next");
 
         function updateUI(){{
-            const cur = list[idx];
-            title.innerText = "正在播放：" + cur.name;
-            knob.innerText = cur.name;
-            prevName.innerText = list[(idx-1+list.length)%list.length].name;
-            nextName.innerText = list[(idx+1)%list.length].name;
+            title.innerText = "正在播放：" + list[idx].name;
+            prevName.innerText = "◀ " + list[(idx-1+list.length)%list.length].name;
+            nextName.innerText = list[(idx+1)%list.length].name + " ▶";
         }}
 
         function attachHls(url){{
@@ -181,7 +172,8 @@ else:
             loadSrc(list[idx].url);
         }}
 
-        knob.addEventListener('click', ()=>gotoIndex(idx+1));
+        prevName.addEventListener('click', ()=>gotoIndex(idx-1));
+        nextName.addEventListener('click', ()=>gotoIndex(idx+1));
 
         document.addEventListener('keydown', e=>{{
             if(e.key==="ArrowLeft") gotoIndex(idx-1);
@@ -189,8 +181,8 @@ else:
         }});
 
         let startX=null;
-        knob.addEventListener('touchstart', e=>{{startX=e.touches[0].clientX;}});
-        knob.addEventListener('touchend', e=>{{
+        video.addEventListener('touchstart', e=>{{startX=e.touches[0].clientX;}});
+        video.addEventListener('touchend', e=>{{
             const endX=e.changedTouches[0].clientX;
             if(startX && Math.abs(endX-startX)>50){{
                 if(endX<startX) gotoIndex(idx+1); else gotoIndex(idx-1);
@@ -204,10 +196,11 @@ else:
     </script>
     """
 
-    st.components.v1.html(html, height=800)
+    st.components.v1.html(html, height=700)
 
     if unavailable:
         st.markdown("**不可用或需驗證的頻道**")
         for u in unavailable:
             st.write(f"- {u['name']}: {u.get('error')}")
 
+    st.info("若某台需要登入驗證，請上傳 cookies.txt 並重新整理頁面以讓伺服器抓取帶 cookies 的 m3u8。")
