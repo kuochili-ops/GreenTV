@@ -1,4 +1,4 @@
-# app.py
+# app.py (part 1 of 2)
 import streamlit as st
 from yt_dlp import YoutubeDL
 import tempfile
@@ -96,6 +96,7 @@ def fetch_best_m3u8_for_video(video_url, cookiefile=None, timeout=25, quiet=True
 def export_m3u8_list(results):
     lines = [f"{r['title']} | {r['url']}" for r in results if r.get("url")]
     return "\n".join(lines)
+# app.py (part 2 of 2)
 
 # -------------------------------
 # 主流程（僅在按鈕按下時執行）
@@ -179,118 +180,131 @@ if st.button("開始解析並產生清單"):
             except Exception:
                 pass
 
-        # 顯示結果
+        # 分類結果並存入 session_state（確保在 rerun 後仍可用）
         playable = [r for r in results if r.get("url")]
         unavailable = [r for r in results if not r.get("url")]
 
-        if playable:
-            st.subheader("✅ 可播放的 m3u8 清單")
-            st.download_button("📥 下載 m3u8 清單（每行：title | url）", export_m3u8_list(playable), file_name="m3u8_list.txt", mime="text/plain")
+        st.session_state["playable"] = playable
+        st.session_state["unavailable"] = unavailable
+        if "selected_m3u8" not in st.session_state and playable:
+            st.session_state["selected_m3u8"] = {"index": 0, "title": playable[0]["title"], "url": playable[0]["url"]}
 
-            st.markdown("**點選下列任一項以在下方播放器播放**")
-            cols = st.columns([4, 1])
-            with cols[0]:
-                for i, it in enumerate(playable):
-                    key = f"play_item_{i}"
-                    if st.button(f"{i+1}. {it['title']}", key=key):
-                        st.session_state["selected_m3u8"] = {"index": i, "title": it["title"], "url": it["url"]}
-            with cols[1]:
-                st.write("共可播放：")
-                st.write(len(playable))
+# -------------------------------
+# 顯示結果（使用 session_state 儲存與讀取）
+# -------------------------------
+playable = st.session_state.get("playable", [])
+unavailable = st.session_state.get("unavailable", [])
 
-            if "selected_m3u8" not in st.session_state and playable:
-                st.session_state["selected_m3u8"] = {"index": 0, "title": playable[0]["title"], "url": playable[0]["url"]}
+if playable:
+    st.subheader("✅ 可播放的 m3u8 清單")
+    st.download_button("📥 下載 m3u8 清單（每行：title | url）", export_m3u8_list(playable), file_name="m3u8_list.txt", mime="text/plain")
 
-            sel = st.session_state.get("selected_m3u8")
-            if sel and playable:
-                # 安全檢查：確保索引在範圍內
-                sel_index = sel.get("index", 0)
-                if sel_index < 0 or sel_index >= len(playable):
-                    sel_index = 0
-                player_id = "player_" + uuid.uuid4().hex[:8]
-                js_list = [{"name": p["title"], "url": p["url"]} for p in playable]
+    st.markdown("**點選下列任一項以在下方播放器播放**")
+    cols = st.columns([4, 1])
+    with cols[0]:
+        for i, it in enumerate(playable):
+            key = f"play_item_{i}"
+            if st.button(f"{i+1}. {it['title']}", key=key):
+                st.session_state["selected_m3u8"] = {"index": i, "title": it["title"], "url": it["url"]}
+    with cols[1]:
+        st.write("共可播放：")
+        st.write(len(playable))
 
-                # 建立 HTML 時不再直接使用 player_list[0] 或 [1]，改用安全索引
-                html = f'''
-                <div style="display:flex;flex-direction:column;align-items:center;">
-                  <div id="{player_id}_title" style="font-weight:600;margin-bottom:8px;">正在播放：{playable[sel_index]["title"]}</div>
-                  <video id="{player_id}" controls autoplay playsinline style="width:100%;max-width:960px;height:auto;background:black;"></video>
-                  <div style="margin-top:8px;">
-                    <button id="{player_id}_prev">◀ 上一則</button>
-                    <button id="{player_id}_next">下一則 ▶</button>
-                    <span id="{player_id}_info" style="margin-left:12px;"></span>
-                  </div>
-                  <div id="{player_id}_overlay" style="display:none;margin-top:8px;color:#c33;font-size:14px;">
-                    自動播放被瀏覽器阻擋，請按播放並取消靜音以聽聲音。
-                  </div>
-                </div>
+    # 若尚未選擇，預設第一項
+    if "selected_m3u8" not in st.session_state and playable:
+        st.session_state["selected_m3u8"] = {"index": 0, "title": playable[0]["title"], "url": playable[0]["url"]}
 
-                <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js"></script>
-                <script>
-                (function(){{
-                    const list = {js_list!r};
-                    let idx = {sel_index};
-                    const video = document.getElementById("{player_id}");
-                    const title = document.getElementById("{player_id}_title");
-                    const prevBtn = document.getElementById("{player_id}_prev");
-                    const nextBtn = document.getElementById("{player_id}_next");
-                    const overlay = document.getElementById("{player_id}_overlay");
+    # 取得選擇並做安全檢查
+    sel = st.session_state.get("selected_m3u8")
+    if sel:
+        sel_index = sel.get("index", 0)
+        if sel_index < 0 or sel_index >= len(playable):
+            sel_index = 0
+            st.session_state["selected_m3u8"] = {"index": 0, "title": playable[0]["title"], "url": playable[0]["url"]}
 
-                    function updateInfo() {{
-                        const cur = list[idx];
-                        title.innerText = "正在播放：" + cur.name;
+        player_id = "player_" + uuid.uuid4().hex[:8]
+        js_list = [{"name": p["title"], "url": p["url"]} for p in playable]
+
+        html = f'''
+        <div style="display:flex;flex-direction:column;align-items:center;">
+          <div id="{player_id}_title" style="font-weight:600;margin-bottom:8px;">正在播放：{playable[sel_index]["title"]}</div>
+          <video id="{player_id}" controls autoplay playsinline style="width:100%;max-width:960px;height:auto;background:black;"></video>
+          <div style="margin-top:8px;">
+            <button id="{player_id}_prev">◀ 上一則</button>
+            <button id="{player_id}_next">下一則 ▶</button>
+            <span id="{player_id}_info" style="margin-left:12px;"></span>
+          </div>
+          <div id="{player_id}_overlay" style="display:none;margin-top:8px;color:#c33;font-size:14px;">
+            自動播放被瀏覽器阻擋，請按播放並取消靜音以聽聲音。
+          </div>
+        </div>
+
+        <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js"></script>
+        <script>
+        (function(){{
+            const list = {js_list!r};
+            let idx = {sel_index};
+            const video = document.getElementById("{player_id}");
+            const title = document.getElementById("{player_id}_title");
+            const prevBtn = document.getElementById("{player_id}_prev");
+            const nextBtn = document.getElementById("{player_id}_next");
+            const overlay = document.getElementById("{player_id}_overlay");
+
+            function updateInfo() {{
+                const cur = list[idx];
+                title.innerText = "正在播放：" + cur.name;
+            }}
+
+            function attachHls(url) {{
+                if (video.canPlayType('application/vnd.apple.mpegurl')) {{
+                    video.src = url;
+                }} else if (Hls.isSupported()) {{
+                    if (window._hls_instance) {{
+                        try {{ window._hls_instance.destroy(); }} catch(e){{}} 
+                        window._hls_instance = null;
                     }}
+                    const hls = new Hls();
+                    window._hls_instance = hls;
+                    hls.loadSource(url);
+                    hls.attachMedia(video);
+                }} else {{
+                    video.src = url;
+                }}
+            }}
 
-                    function attachHls(url) {{
-                        if (video.canPlayType('application/vnd.apple.mpegurl')) {{
-                            video.src = url;
-                        }} else if (Hls.isSupported()) {{
-                            if (window._hls_instance) {{
-                                try {{ window._hls_instance.destroy(); }} catch(e){{}} 
-                                window._hls_instance = null;
-                            }}
-                            const hls = new Hls();
-                            window._hls_instance = hls;
-                            hls.loadSource(url);
-                            hls.attachMedia(video);
-                        }} else {{
-                            video.src = url;
-                        }}
-                    }}
+            async function loadSrc(url) {{
+                video.muted = false;
+                attachHls(url);
+                try {{ await video.play(); overlay.style.display = "none"; }} catch (err) {{ overlay.style.display = "block"; }}
+            }}
 
-                    async function loadSrc(url) {{
-                        video.muted = false;
-                        attachHls(url);
-                        try {{ await video.play(); overlay.style.display = "none"; }} catch (err) {{ overlay.style.display = "block"; }}
-                    }}
+            function gotoIndex(newIdx) {{
+                if (list.length === 0) return;
+                if (newIdx < 0) newIdx = list.length - 1;
+                if (newIdx >= list.length) newIdx = 0;
+                idx = newIdx;
+                updateInfo();
+                loadSrc(list[idx].url);
+            }}
 
-                    function gotoIndex(newIdx) {{
-                        if (list.length === 0) return;
-                        if (newIdx < 0) newIdx = list.length - 1;
-                        if (newIdx >= list.length) newIdx = 0;
-                        idx = newIdx;
-                        updateInfo();
-                        loadSrc(list[idx].url);
-                    }}
+            prevBtn.addEventListener('click', ()=> gotoIndex(idx-1));
+            nextBtn.addEventListener('click', ()=> gotoIndex(idx+1));
+            document.addEventListener('keydown', function(e) {{
+                const tag = (document.activeElement && document.activeElement.tagName) || '';
+                if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement && document.activeElement.isContentEditable) return;
+                if (e.key === 'ArrowLeft') gotoIndex(idx-1);
+                if (e.key === 'ArrowRight') gotoIndex(idx+1);
+            }});
 
-                    prevBtn.addEventListener('click', ()=> gotoIndex(idx-1));
-                    nextBtn.addEventListener('click', ()=> gotoIndex(idx+1));
-                    document.addEventListener('keydown', function(e) {{
-                        const tag = (document.activeElement && document.activeElement.tagName) || '';
-                        if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement && document.activeElement.isContentEditable) return;
-                        if (e.key === 'ArrowLeft') gotoIndex(idx-1);
-                        if (e.key === 'ArrowRight') gotoIndex(idx+1);
-                    }});
-
-                    updateInfo();
-                    if (list.length > 0) loadSrc(list[idx].url);
-                }})();
-                </script>
-                '''
-                st.components.v1.html(html, height=640)
-        else:
-            st.warning("目前沒有可播放的 m3u8 項目。請檢查輸入的網址或上傳 cookies（若影片需要登入）。")
-            if unavailable:
-                st.subheader("❌ 無法取得 m3u8 的項目")
-                for u in unavailable:
-                    st.write(f"- {u.get('title') or u.get('url')} → {u.get('error', '找不到 HLS 格式')}")
+            updateInfo();
+            if (list.length > 0) loadSrc(list[idx].url);
+        }})();
+        </script>
+        '''
+        st.components.v1.html(html, height=640)
+else:
+    st.warning("目前沒有可播放的 m3u8 項目。請檢查輸入的網址或上傳 cookies（若影片需要登入）。")
+    if unavailable:
+        st.subheader("❌ 無法取得 m3u8 的項目")
+        for u in unavailable:
+            st.write(f"- {u.get('title') or u.get('url')} → {u.get('error', '找不到 HLS 格式')}")
