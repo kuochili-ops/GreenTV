@@ -76,21 +76,110 @@ if start_button and urls_input.strip():
             failed_list.append({"title": url, "reason": str(e)})
 
 # 顯示結果
-
-
 if playlist:
     st.success(f"成功解析 {len(playlist)} 個影片")
     if failed_list:
         st.warning(f"跳過 {len(failed_list)} 個影片")
-        for f in failed_list:
-            st.write(f"- {f['title']}（原因：{f['reason']}）")
+        st.table(failed_list)
 
-    # 播放器 HTML + JS 省略（保持原樣）
+    player_id = "player_" + uuid.uuid4().hex[:8]
+
+    # 動態生成 HTML + JS
+    html = f"""
+    <div style="display:flex;flex-direction:column;align-items:center;">
+      <video id="{player_id}" controls autoplay playsinline style="width:100%;max-width:960px;height:auto;background:black;"></video>
+      <div style="margin-top:16px;">
+        <ul id="{player_id}_list" style="list-style:none;padding:0;font-size:18px;">
+    """
+    for i, item in enumerate(playlist):
+        html += f'<li id="item_{i}" style="margin:8px 0;cursor:pointer;color:#007bff;" onclick="gotoIndex({i})">{item["title"]}</li>'
+    html += "</ul></div></div>"
+
+    html += """
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js"></script>
+    <script>
+    (function(){
+        const list = """ + str(playlist).replace("'", '"') + """;
+        let idx = 0;
+        const video = document.getElementById('""" + player_id + """');
+        const ul = document.getElementById('""" + player_id + """_list');
+
+        function highlightCurrent(){
+            for(let i=0;i<list.length;i++){
+                const li = document.getElementById('item_'+i);
+                if(i===idx){
+                    li.style.color='red';
+                    li.style.fontWeight='bold';
+                } else {
+                    li.style.color='#007bff';
+                    li.style.fontWeight='normal';
+                }
+            }
+        }
+
+        function attachHls(url){
+            if(video.canPlayType('application/vnd.apple.mpegurl')){
+                video.src = url;
+            } else if(Hls.isSupported()){
+                if(window._hls_instance){window._hls_instance.destroy();}
+                const hls = new Hls();
+                window._hls_instance = hls;
+                hls.loadSource(url);
+                hls.attachMedia(video);
+            } else {
+                video.src = url;
+            }
+        }
+
+        async function loadSrc(url){
+            video.muted = false;
+            attachHls(url);
+            try{await video.play();}catch(e){}
+        }
+
+        function gotoIndex(newIdx){
+            idx = newIdx;
+            highlightCurrent();
+            loadSrc(list[idx].url);
+        }
+
+        function nextVideo(){
+            if('""" + play_mode + """' === '播放一次後停止'){
+                return;
+            } else if('""" + play_mode + """' === '播放一次後播放下一段'){
+                if(idx < list.length - 1){gotoIndex(idx+1);}
+            } else if('""" + play_mode + """' === '清單播放一次'){
+                if(idx < list.length - 1){gotoIndex(idx+1);}
+            } else if('""" + play_mode + """' === '循環播放'){
+                gotoIndex((idx+1)%list.length);
+            } else if('""" + play_mode + """' === '隨機播放'){
+                gotoIndex(Math.floor(Math.random()*list.length));
+            }
+        }
+
+        video.addEventListener('ended', nextVideo);
+
+        // 雙擊影片全螢幕
+        video.addEventListener('dblclick', async ()=>{
+            try{
+                if(!document.fullscreenElement){
+                    await video.requestFullscreen();
+                } else {
+                    await document.exitFullscreen();
+                }
+            }catch(e){}
+        });
+
+        highlightCurrent();
+        loadSrc(list[0].url);
+    })();
+    </script>
+    """
+
     st.components.v1.html(html, height=800)
 
 elif start_button:
     st.error("沒有成功解析的影片，請檢查連結是否有效或影片是否可播放。")
     if failed_list:
         st.warning("以下影片解析失敗：")
-        for f in failed_list:
-            st.write(f"- {f['title']}（原因：{f['reason']}）")
+        st.table(failed_list)
