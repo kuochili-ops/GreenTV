@@ -2,8 +2,6 @@
 import streamlit as st
 from yt_dlp import YoutubeDL
 import uuid
-import tempfile
-import os
 import random
 
 # 頁面設定
@@ -49,6 +47,7 @@ def choose_best_m3u8(formats):
     return candidates[0]
 
 playlist = []
+failed_list = []
 
 if start_button and urls_input.strip():
     urls = [u.strip() for u in urls_input.splitlines() if u.strip()]
@@ -58,21 +57,32 @@ if start_button and urls_input.strip():
             info = fetch_info(url)
             if "entries" in info:  # Playlist
                 for entry in info["entries"]:
-                    if entry.get("url"):
+                    try:
                         sub_info = fetch_info(entry["url"])
                         best = choose_best_m3u8(sub_info.get("formats", []))
                         if best:
                             playlist.append({"title": sub_info.get("title"), "url": best["url"]})
+                        else:
+                            failed_list.append({"title": sub_info.get("title"), "reason": "找不到 m3u8"})
+                    except Exception as e:
+                        failed_list.append({"title": entry.get("title", "未知影片"), "reason": str(e)})
             else:  # 單一影片
                 best = choose_best_m3u8(info.get("formats", []))
                 if best:
                     playlist.append({"title": info.get("title"), "url": best["url"]})
+                else:
+                    failed_list.append({"title": info.get("title"), "reason": "找不到 m3u8"})
         except Exception as e:
-            st.error(f"解析失敗：{url}，錯誤：{e}")
+            failed_list.append({"title": url, "reason": str(e)})
 
-# 顯示播放清單
+# 顯示結果
 if playlist:
-    st.success(f"已產生 {len(playlist)} 個影片")
+    st.success(f"成功解析 {len(playlist)} 個影片")
+    if failed_list:
+        st.warning(f"跳過 {len(failed_list)} 個影片")
+        for f in failed_list:
+            st.write(f"- {f['title']}（原因：{f['reason']}）")
+
     player_id = "player_" + uuid.uuid4().hex[:8]
 
     # 動態生成 HTML + JS
@@ -141,3 +151,5 @@ if playlist:
     """
 
     st.components.v1.html(html, height=800)
+
+elif start_button:
