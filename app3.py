@@ -27,7 +27,7 @@ def fetch_info(url: str, extract_flat=False):
         "skip_download": True,
         "extract_flat": extract_flat,
         "no_warnings": True,
-        "socket_timeout": 15,  # 超時設定
+        "socket_timeout": 15,
     }
     with YoutubeDL(ydl_opts) as ydl:
         return ydl.extract_info(url, download=False)
@@ -65,7 +65,7 @@ if start_button and urls_input.strip():
             info = fetch_info(url, extract_flat=extract_flat)
 
             if "entries" in info:  # Playlist 或 Radio
-                for entry in info["entries"][:30]:  # 限制最多 30 段
+                for entry in info["entries"][:30]:
                     try:
                         entry_url = entry.get("url") or f"https://www.youtube.com/watch?v={entry.get('id')}"
                         sub_info = fetch_info(entry_url)
@@ -94,105 +94,102 @@ if playlist:
 
     player_id = "player_" + uuid.uuid4().hex[:8]
 
-    # 動態生成 HTML + JS
+    # ✅ 修正 HTML，不再使用 &lt; &gt;
     html = f"""
-    <div style="display:flex;flex-direction:column;align-items:center;">
-      <video id="{player_id}" controls autoplay playsinline style="width:100%;max-width:960px;height:auto;background:black;"></video>
-      <div style="margin-top:16px;">
-        <ul id="{player_id}_list" style="list-style:none;padding:0;font-size:18px;">
-    """
+<div style="display:flex;flex-direction:column;align-items:center;">
+  <video id="{player_id}" controls autoplay playsinline style="width:100%;max-width:960px;height:auto;background:black;"></video>
+  <div style="margin-top:16px;">
+    <ul id="{player_id}_list" style="list-style:none;padding:0;font-size:18px;">
+"""
     for i, item in enumerate(playlist):
         html += f'<li id="item_{i}" style="margin:8px 0;cursor:pointer;color:#007bff;" onclick="gotoIndex({i})">{item["title"]}</li>'
     html += "</ul></div></div>"
 
-    html += """
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js"></script>
-    <script>
-    (function(){
-        const list = """ + str(playlist).replace("'", '"') + """;
-        let idx = 0;
-        const video = document.getElementById('""" + player_id + """');
+    html += f"""
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js"></script>
+<script>
+(function(){
+    const list = {str(playlist).replace("'", '"')};
+    let idx = 0;
+    const video = document.getElementById('{player_id}');
 
-        function highlightCurrent(){
-            for(let i=0;i<list.length;i++){
-                const li = document.getElementById('item_'+i);
-                if(li){
-                    if(i===idx){
-                        li.style.color='red';
-                        li.style.fontWeight='bold';
-                    } else {
-                        li.style.color='#007bff';
-                        li.style.fontWeight='normal';
-                    }
-                }
-            }
-        }
-
-        function attachHls(url){
-            if(video.canPlayType('application/vnd.apple.mpegurl')){
-                video.src = url;
-            } else if(Hls.isSupported()){
-                if(window._hls_instance){window._hls_instance.destroy();}
-                const hls = new Hls();
-                window._hls_instance = hls;
-                hls.loadSource(url);
-                hls.attachMedia(video);
-            } else {
-                video.src = url;
-            }
-        }
-
-        async function loadSrc(url){
-            video.muted = false;
-            attachHls(url);
-            try{await video.play();}catch(e){}
-        }
-
-        function gotoIndex(newIdx){
-            idx = newIdx;
-            highlightCurrent();
-            loadSrc(list[idx].url);
-        }
-
-        function nextVideo(){
-            const mode = '""" + play_mode + """';
-            if(mode === '播放一次後停止'){
-                return;
-            } else if(mode === '播放一次後播放下一段'){
-                if(idx < list.length - 1){gotoIndex(idx+1);}
-            } else if(mode === '清單播放一次'){
-                if(idx < list.length - 1){gotoIndex(idx+1);}
-            } else if(mode === '循環播放'){
-                gotoIndex((idx+1)%list.length);
-            } else if(mode === '隨機播放'){
-                gotoIndex(Math.floor(Math.random()*list.length));
-            }
-        }
-
-        video.addEventListener('ended', nextVideo);
-
-        // 雙擊影片全螢幕
-        video.addEventListener('dblclick', async ()=>{
-            try{
-                if(!document.fullscreenElement){
-                    await video.requestFullscreen();
+    function highlightCurrent(){
+        for(let i=0;i<list.length;i++){
+            const li = document.getElementById('item_'+i);
+            if(li){
+                if(i===idx){
+                    li.style.color='red';
+                    li.style.fontWeight='bold';
                 } else {
-                    await document.exitFullscreen();
+                    li.style.color='#007bff';
+                    li.style.fontWeight='normal';
                 }
-            }catch(e){}
-        });
+            }
+        }
+    }
 
+    function attachHls(url){
+        if(video.canPlayType('application/vnd.apple.mpegurl')){
+            video.src = url;
+        } else if(Hls.isSupported()){
+            if(window._hls_instance){window._hls_instance.destroy();}
+            const hls = new Hls();
+            window._hls_instance = hls;
+            hls.loadSource(url);
+            hls.attachMedia(video);
+        } else {
+            video.src = url;
+        }
+    }
+
+    async function loadSrc(url){
+        video.muted = false;
+        attachHls(url);
+        try{await video.play();}catch(e){}
+    }
+
+    function gotoIndex(newIdx){
+        idx = newIdx;
         highlightCurrent();
-        loadSrc(list[0].url);
-    })();
-    </script>
-    """
+        loadSrc(list[idx].url);
+    }
+
+    function nextVideo(){
+        const mode = '{play_mode}';
+        if(mode === '播放一次後停止'){
+            return;
+        } else if(mode === '播放一次後播放下一段'){
+            if(idx < list.length - 1){gotoIndex(idx+1);}
+        } else if(mode === '清單播放一次'){
+            if(idx < list.length - 1){gotoIndex(idx+1);}
+        } else if(mode === '循環播放'){
+            gotoIndex((idx+1)%list.length);
+        } else if(mode === '隨機播放'){
+            gotoIndex(Math.floor(Math.random()*list.length));
+        }
+    }
+
+    video.addEventListener('ended', nextVideo);
+
+    video.addEventListener('dblclick', async ()=>{
+        try{
+            if(!document.fullscreenElement){
+                await video.requestFullscreen();
+            } else {
+                await document.exitFullscreen();
+            }
+        }catch(e){}
+    });
+
+    highlightCurrent();
+    loadSrc(list[0].url);
+})();
+</script>
+"""
 
     st.components.v1.html(html, height=800)
-
 
 elif start_button and urls_input.strip():
     st.warning("所有影片都失效或無法解析，請檢查連結或換另一個播放清單。")
     if failed_list:
         st.table(failed_list)
-
