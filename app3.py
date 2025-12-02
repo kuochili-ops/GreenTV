@@ -13,12 +13,12 @@ from html import escape
 # -------------------------------
 # Streamlit page config
 # -------------------------------
-st.set_page_config(page_title="YouTube 點唱機（HTML 嵌入）", layout="wide")
-st.markdown("<h1 style='margin-bottom:6px;'>🎵 YouTube 點唱機（HTML 嵌入）</h1>", unsafe_allow_html=True)
+st.set_page_config(page_title="YouTube 點唱機（自動依序播放）", layout="wide")
+st.markdown("<h1 style='margin-bottom:6px;'>🎵 YouTube 點唱機（自動依序播放）</h1>", unsafe_allow_html=True)
 st.write("上方為固定操作列（播放 / 加入佇列 / 移除），下方為可滑動候選清單；播放器使用 HLS（m3u8）。")
 
 # -------------------------------
-# Input area (collapsed) - simplified (removed parallel/batch/debug controls)
+# Input area (collapsed) - simplified
 # -------------------------------
 with st.expander("輸入 YouTube 影片或播放清單網址（每行一個）", expanded=False):
     urls_input = st.text_area("網址（每行一個）", height=120)
@@ -211,7 +211,7 @@ init_selected = selected_index if selected_index is not None else 0
 
 # -------------------------------
 # HTML template (ordinary triple-quoted string, placeholders {JS_LIST} and {INIT_SELECTED})
-# - top-panel background set to opaque; selected item style adjusted
+# - autoplay-next behavior implemented; muted autoplay attempt; "取消靜音" button added
 # -------------------------------
 html_template = '''
 <!doctype html>
@@ -224,7 +224,7 @@ html_template = '''
   .wrap { display:flex; gap:18px; padding:12px; box-sizing:border-box; }
   .left { width:36%; min-width:260px; background:#0f1724; padding:12px; border-radius:10px; box-sizing:border-box; }
   .right { flex:1; background:linear-gradient(180deg,#071021,#0b1b2b); padding:18px; border-radius:10px; box-sizing:border-box; color:#fff; }
-  /* top-panel now opaque to avoid overlap with list text */
+  /* top-panel opaque */
   .top-panel { position:sticky; top:12px; background:#0b2a4a; padding:12px; border-radius:8px; margin-bottom:12px; color:#ffffff; }
   .scroll-area { max-height:520px; overflow:auto; padding-right:6px; }
   .song-item { padding:10px; border-radius:6px; margin-bottom:8px; background:rgba(255,255,255,0.02); display:flex; align-items:center; justify-content:space-between; color:#e6eef8; }
@@ -232,8 +232,9 @@ html_template = '''
   .queue-item { padding:6px 8px; border-radius:6px; background:rgba(255,255,255,0.02); margin-bottom:6px; color:#e6eef8; }
   .btn { padding:8px 12px; border-radius:6px; background:#1f6feb; color:white; border:none; cursor:pointer; }
   .small-btn { padding:6px 8px; border-radius:6px; background:transparent; border:1px solid rgba(255,255,255,0.06); color:#cfe8ff; cursor:pointer; }
-  /* selected item: use solid background to avoid text overlap */
+  /* selected item: solid background to avoid overlap */
   .selected { background:#1f6feb; color:#ffffff; outline: none; }
+  .mute-note { margin-left:12px; color:#ffd; font-size:13px; }
   video { background:black; border-radius:6px; }
   @media (max-width:900px) {
     .wrap { flex-direction:column; }
@@ -247,10 +248,12 @@ html_template = '''
   <div class="left">
     <div class="top-panel">
       <div id="selectedTitle" style="font-weight:600; margin-bottom:8px;">尚未選擇項目</div>
-      <div style="display:flex; gap:8px;">
+      <div style="display:flex; gap:8px; align-items:center;">
         <button id="btnPlay" class="btn">▶ 播放</button>
         <button id="btnQueue" class="btn">＋ 加入佇列</button>
         <button id="btnRemove" class="btn">🗑 移除</button>
+        <button id="btnUnmute" class="btn" style="background:#2ecc71; margin-left:8px;">取消靜音</button>
+        <div id="muteNote" class="mute-note">自動播放時會以靜音嘗試播放</div>
       </div>
     </div>
 
@@ -294,6 +297,11 @@ html_template = '''
   const vol = document.getElementById('vol');
   const loopCheckbox = document.getElementById('loop');
   const shuffleCheckbox = document.getElementById('shuffle');
+  const btnUnmute = document.getElementById('btnUnmute');
+  const muteNote = document.getElementById('muteNote');
+
+  // Attempt autoplay with muted to satisfy browser policies.
+  let autoplayMuted = true;
 
   function renderList() {
     scrollList.innerHTML = '';
@@ -331,13 +339,18 @@ html_template = '''
     const cur = list[selectedIndex];
     selectedTitle.innerText = `選擇：${selectedIndex+1}. ${cur.title}`;
     playerTitle.innerText = cur.title;
-    loadHls(cur.url);
+    loadHls(cur.url, /*autoplay=*/true);
   }
 
-  function loadHls(url) {
+  function loadHls(url, autoplay=false) {
     if (!url) return;
+    // set muted state for autoplay attempts
+    if (autoplay && autoplayMuted) {
+      try { video.muted = true; } catch(e) {}
+    }
     if (video.canPlayType('application/vnd.apple.mpegurl')) {
       video.src = url;
+      if (autoplay) try { video.play().catch(()=>{}); } catch(e){}
     } else if (Hls.isSupported()) {
       if (window._hls_instance) {
         try { window._hls_instance.destroy(); } catch(e) {}
@@ -347,8 +360,14 @@ html_template = '''
       window._hls_instance = hls;
       hls.loadSource(url);
       hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, function() {
+        if (autoplay) {
+          video.play().catch(()=>{});
+        }
+      });
     } else {
       video.src = url;
+      if (autoplay) try { video.play().catch(()=>{}); } catch(e){}
     }
   }
 
@@ -366,33 +385,102 @@ html_template = '''
     });
   }
 
-  document.getElementById('btnPlay').onclick = () => { if (!list.length) return; try { video.play(); } catch(e) {} };
-  document.getElementById('btnQueue').onclick = () => { if (!list.length) return; const item = list[selectedIndex]; if (!queue.find(q => q.url === item.url)) { queue.push(item); renderQueue(); } };
-  document.getElementById('btnRemove').onclick = () => { if (!list.length) return; list.splice(selectedIndex, 1); if (selectedIndex >= list.length) selectedIndex = Math.max(0, list.length - 1); renderList(); renderQueue(); };
+  // Buttons
+  document.getElementById('btnPlay').onclick = () => {
+    if (!list.length) return;
+    // If user explicitly clicks Play, unmute to respect intent
+    try { video.muted = false; autoplayMuted = false; } catch(e){}
+    try { video.play(); } catch(e){}
+  };
+  document.getElementById('btnQueue').onclick = () => {
+    if (!list.length) return;
+    const item = list[selectedIndex];
+    if (!queue.find(q => q.url === item.url)) {
+      queue.push(item);
+      renderQueue();
+    }
+  };
+  document.getElementById('btnRemove').onclick = () => {
+    if (!list.length) return;
+    list.splice(selectedIndex, 1);
+    if (selectedIndex >= list.length) selectedIndex = Math.max(0, list.length - 1);
+    renderList();
+    renderQueue();
+  };
+
+  // Unmute button: user action to allow sound
+  btnUnmute.onclick = () => {
+    try {
+      video.muted = false;
+      autoplayMuted = false;
+      muteNote.innerText = '已取消靜音';
+      setTimeout(()=>{ muteNote.innerText = ''; }, 2500);
+    } catch(e) {}
+  };
 
   document.getElementById('prevBtn').onclick = () => {
     if (!list.length) return;
-    if (shuffleCheckbox.checked) selectedIndex = Math.floor(Math.random() * list.length);
-    else selectedIndex = (selectedIndex - 1 + list.length) % list.length;
+    if (shuffleCheckbox.checked) {
+      selectedIndex = Math.floor(Math.random() * list.length);
+    } else {
+      selectedIndex = (selectedIndex - 1 + list.length) % list.length;
+    }
     renderList();
   };
   document.getElementById('nextBtn').onclick = () => {
     if (!list.length) return;
-    if (shuffleCheckbox.checked) selectedIndex = Math.floor(Math.random() * list.length);
-    else selectedIndex = (selectedIndex + 1) % list.length;
+    if (shuffleCheckbox.checked) {
+      selectedIndex = Math.floor(Math.random() * list.length);
+    } else {
+      selectedIndex = (selectedIndex + 1) % list.length;
+    }
     renderList();
   };
 
   vol.oninput = () => { video.volume = vol.value / 100.0; };
 
+  // Auto-advance logic on ended:
+  // 1) If queue has items, play queue.shift()
+  // 2) Else advance in list (respect shuffle and loop)
   video.addEventListener('ended', () => {
-    if (!list.length) return;
-    if (shuffleCheckbox.checked) selectedIndex = Math.floor(Math.random() * list.length);
-    else selectedIndex = (selectedIndex + 1) % list.length;
-    if (!loopCheckbox.checked && selectedIndex === 0 && !shuffleCheckbox.checked) return;
+    // If there is a queue, play next from queue
+    if (queue.length > 0) {
+      const next = queue.shift();
+      renderQueue();
+      // find index in list if exists, else play directly
+      const idx = list.findIndex(x => x.url === next.url);
+      if (idx >= 0) {
+        selectedIndex = idx;
+        renderList();
+        // autoplay attempt (muted if needed)
+        loadHls(list[selectedIndex].url, true);
+      } else {
+        // play the URL directly (temporary)
+        loadHls(next.url, true);
+      }
+      return;
+    }
+
+    // no queue: advance in list
+    if (!list || list.length === 0) return;
+    if (shuffleCheckbox.checked) {
+      selectedIndex = Math.floor(Math.random() * list.length);
+    } else {
+      selectedIndex = (selectedIndex + 1) % list.length;
+    }
+
+    // if reached start again and not looping and not shuffle, stop
+    if (!loopCheckbox.checked && !shuffleCheckbox.checked && selectedIndex === 0) {
+      // do not auto-restart
+      return;
+    }
+
     renderList();
+    // autoplay attempt (muted if needed)
+    loadHls(list[selectedIndex].url, true);
   });
 
+  // initial render and autoplay attempt for selected item
   renderList();
   renderQueue();
 </script>
@@ -406,7 +494,7 @@ html_template = html_template.replace("{JS_LIST}", js_list).replace("{INIT_SELEC
 # -------------------------------
 # Render HTML component
 # -------------------------------
-st.components.v1.html(html_template, height=720, scrolling=True)
+st.components.v1.html(html_template, height=760, scrolling=True)
 
 # Streamlit-side controls
 st.markdown("---")
@@ -428,4 +516,4 @@ with col_b:
         except Exception:
             st.stop()
 with col_c:
-    st.write("提示：滑動清單點「選擇」，再用上方操作列控制播放或加入佇列。")
+    st.write("提示：若自動播放被瀏覽器阻擋，請按「取消靜音」或手動按播放。")
