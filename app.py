@@ -1,4 +1,4 @@
-# app.py
+
 import streamlit as st
 from yt_dlp import YoutubeDL
 import uuid
@@ -7,11 +7,12 @@ import os
 from urllib.parse import urlparse
 import requests
 
+# 頁面設定
 st.set_page_config(page_title="綠的電視", layout="wide")
-st.title("自動播放，左右鍵切台")
-st.write("頁面載入後自動從三立新聞開始播放；使用鍵盤左右鍵或按鈕切換頻道。若直播需要登入驗證，請上傳 cookies.txt（Netscape 格式）。")
+st.title("自動播放，旋鈕切台")
+st.write("頁面載入後自動從三立新聞開始播放；使用旋鈕、滑動或鍵盤左右鍵切換頻道。若直播需要登入驗證，請上傳 cookies.txt（Netscape 格式）。")
 
-# 四台頻道（原始順序，第一台為三立）
+# 頻道清單
 CHANNELS = [
     {"name": "三立新聞", "url": "https://www.youtube.com/live/QsGswQvRmtU?si=0tG0FZcoxq5nftxS"},
     {"name": "民視新聞", "url": "https://www.youtube.com/live/ylYJSBUgaMA?si=yBqbwafsMknTq_gT"},
@@ -62,16 +63,10 @@ def choose_best_m3u8(formats: list):
     candidates.sort(key=score, reverse=True)
     return candidates[0]
 
-def fetch_m3u8_text(url: str, timeout=10):
-    headers = {"User-Agent": "Mozilla/5.0 (compatible; yt-dlp/streamlit-app)"}
-    resp = requests.get(url, headers=headers, timeout=timeout)
-    resp.raise_for_status()
-    return resp.text
-
 # cookies 上傳（選用）
 uploaded_cookies = st.file_uploader("（選擇性）上傳 YouTube cookies.txt（Netscape 格式）以供抓取時使用", type=["txt"])
 
-# 若尚未抓取頻道資訊，則在頁面載入時抓取一次並存入 session_state
+# 抓取頻道資訊
 if "tv_channels" not in st.session_state:
     cookiefile_path = None
     if uploaded_cookies:
@@ -104,7 +99,6 @@ if "tv_channels" not in st.session_state:
             item["error"] = str(e)
         results.append(item)
 
-    # 清理暫存 cookie 檔
     if cookiefile_path and os.path.exists(cookiefile_path):
         try:
             os.remove(cookiefile_path)
@@ -113,7 +107,7 @@ if "tv_channels" not in st.session_state:
 
     st.session_state["tv_channels"] = results
 
-# 顯示播放器（單一播放器，從第一台開始）
+# 顯示播放器
 channels = st.session_state.get("tv_channels", [])
 playable = [c for c in channels if c.get("best_url")]
 unavailable = [c for c in channels if not c.get("best_url")]
@@ -123,22 +117,22 @@ if not playable:
     for u in unavailable:
         st.write(f"- {u['name']}: {u.get('error')}")
 else:
-    # 保持原始順序，假設 CHANNELS 第一項為三立
     player_list = [{"name": c["name"], "url": c["best_url"], "height": c.get("height")} for c in playable]
-
     player_id = "player_" + uuid.uuid4().hex[:8]
 
+    # 動態生成 HTML + JS
     html = f"""
     <div style="display:flex;flex-direction:column;align-items:center;">
       <div id="{player_id}_title" style="font-weight:600;margin-bottom:8px;">正在播放：{player_list[0]['name']}</div>
       <video id="{player_id}" controls autoplay playsinline style="width:100%;max-width:960px;height:auto;background:black;"></video>
-      <div style="margin-top:8px;">
-        <button id="{player_id}_prev">◀ 上一台</button>
-        <button id="{player_id}_next">下一台 ▶</button>
-        <span id="{player_id}_info" style="margin-left:12px;"></span>
-      </div>
-      <div id="{player_id}_overlay" style="display:none;margin-top:8px;color:#c33;font-size:14px;">
-        自動播放被瀏覽器阻擋，請按播放並取消靜音以聽聲音。
+
+      <!-- 旋鈕 UI -->
+      <div style="margin-top:16px;display:flex;align-items:center;justify-content:center;">
+        <div id="{player_id}_prev" style="width:100px;text-align:right;color:#666;margin-right:12px;">{player_list[-1]['name']}</div>
+        <div id="{player_id}_knob" style="width:120px;height:120px;border-radius:50%;background:#eee;display:flex;align-items:center;justify-content:center;font-weight:bold;cursor:pointer;">
+          {player_list[0]['name']}
+        </div>
+        <div id="{player_id}_next" style="width:100px;text-align:left;color:#666;margin-left:12px;">{player_list[1]['name']}</div>
       </div>
     </div>
 
@@ -149,25 +143,23 @@ else:
         let idx = 0;
         const video = document.getElementById("{player_id}");
         const title = document.getElementById("{player_id}_title");
-        const info = document.getElementById("{player_id}_info");
-        const prevBtn = document.getElementById("{player_id}_prev");
-        const nextBtn = document.getElementById("{player_id}_next");
-        const overlay = document.getElementById("{player_id}_overlay");
+        const knob = document.getElementById("{player_id}_knob");
+        const prevName = document.getElementById("{player_id}_prev");
+        const nextName = document.getElementById("{player_id}_next");
 
-        function updateInfo() {{
+        function updateUI(){{
             const cur = list[idx];
             title.innerText = "正在播放：" + cur.name;
-            info.innerText = (cur.height ? (cur.height + "p") : "") ;
+            knob.innerText = cur.name;
+            prevName.innerText = list[(idx-1+list.length)%list.length].name;
+            nextName.innerText = list[(idx+1)%list.length].name;
         }}
 
-        function attachHls(url) {{
-            if (video.canPlayType('application/vnd.apple.mpegurl')) {{
+        function attachHls(url){{
+            if(video.canPlayType('application/vnd.apple.mpegurl')){{
                 video.src = url;
-            }} else if (Hls.isSupported()) {{
-                if (window._hls_instance) {{
-                    try {{ window._hls_instance.destroy(); }} catch(e){{}}
-                    window._hls_instance = null;
-                }}
+            }} else if(Hls.isSupported()){{
+                if(window._hls_instance){{window._hls_instance.destroy();}}
                 const hls = new Hls();
                 window._hls_instance = hls;
                 hls.loadSource(url);
@@ -177,85 +169,45 @@ else:
             }}
         }}
 
-        async function loadSrc(url) {{
-            // 預設非靜音（若瀏覽器阻擋有聲自動播放，會顯示提示）
+        async function loadSrc(url){{
             video.muted = false;
             attachHls(url);
-            try {{
-                await video.play();
-                overlay.style.display = "none";
-            }} catch (err) {{
-                overlay.style.display = "block";
-            }}
+            try{{await video.play();}}catch(e){{}}
         }}
 
-        function gotoIndex(newIdx) {{
-            if (newIdx < 0) newIdx = list.length - 1;
-            if (newIdx >= list.length) newIdx = 0;
-            idx = newIdx;
-            updateInfo();
+        function gotoIndex(newIdx){{
+            idx = (newIdx+list.length)%list.length;
+            updateUI();
             loadSrc(list[idx].url);
         }}
 
-        prevBtn.addEventListener('click', ()=> gotoIndex(idx-1));
-        nextBtn.addEventListener('click', ()=> gotoIndex(idx+1));
+        knob.addEventListener('click', ()=>gotoIndex(idx+1));
 
-        // 雙擊影片切換全螢幕（手機上若無效也不影響）
-        const container = document.getElementById("{player_id}_title").parentElement;
-        video.addEventListener('dblclick', async () => {{
-            try {{
-                if (!document.fullscreenElement) {{
-                    if (container.requestFullscreen) {{
-                        await container.requestFullscreen();
-                    }} else if (container.webkitRequestFullscreen) {{
-                        container.webkitRequestFullscreen();
-                    }}
-                }} else {{
-                    if (document.exitFullscreen) {{
-                        await document.exitFullscreen();
-                    }} else if (document.webkitExitFullscreen) {{
-                        document.webkitExitFullscreen();
-                    }}
-                }}
-            }} catch (e) {{
-                console.warn('fullscreen error', e);
-            }}
+        document.addEventListener('keydown', e=>{{
+            if(e.key==="ArrowLeft") gotoIndex(idx-1);
+            if(e.key==="ArrowRight") gotoIndex(idx+1);
         }});
 
-        // 當進入或離開全螢幕時，確保鍵盤事件仍可用
-        document.addEventListener('fullscreenchange', () => {{
-            try {{
-                document.activeElement && document.activeElement.blur && document.activeElement.blur();
-                document.body.focus && document.body.focus();
-            }} catch(e){{}}
+        let startX=null;
+        knob.addEventListener('touchstart', e=>{{startX=e.touches[0].clientX;}});
+        knob.addEventListener('touchend', e=>{{
+            const endX=e.changedTouches[0].clientX;
+            if(startX && Math.abs(endX-startX)>50){{
+                if(endX<startX) gotoIndex(idx+1); else gotoIndex(idx-1);
+            }}
+            startX=null;
         }});
 
-        // 鍵盤左右鍵切台（在全螢幕也有效）
-        document.addEventListener('keydown', function(e) {{
-            const tag = (document.activeElement && document.activeElement.tagName) || '';
-            if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement && document.activeElement.isContentEditable) {{
-                return;
-            }}
-            if (e.key === 'ArrowLeft') {{
-                gotoIndex(idx-1);
-            }} else if (e.key === 'ArrowRight') {{
-                gotoIndex(idx+1);
-            }}
-        }});
-
-        // 初始載入（從第一台開始）
-        updateInfo();
+        updateUI();
         loadSrc(list[0].url);
     }})();
     </script>
     """
 
-    st.components.v1.html(html, height=700)
+    st.components.v1.html(html, height=800)
 
-    # 顯示不可用頻道
     if unavailable:
         st.markdown("**不可用或需驗證的頻道**")
         for u in unavailable:
             st.write(f"- {u['name']}: {u.get('error')}")
 
-    st.info("若某台需要登入驗證，請上傳 cookies.txt 並重新整理頁面以讓伺服器抓取帶 cookies 的 m3u8。")
