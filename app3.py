@@ -1,4 +1,4 @@
-# app.py (part 1 of 2)
+# app.py
 import streamlit as st
 from yt_dlp import YoutubeDL
 import tempfile
@@ -10,24 +10,41 @@ import time
 import traceback
 
 # -------------------------------
-# 頁面設定（啟動時不做任何耗時工作）
+# 頁面設定
 # -------------------------------
-st.set_page_config(page_title="YouTube m3u8 產生器（穩定版）", layout="wide")
-st.title("🎬 YouTube m3u8 產生器（穩定版）")
-st.write("此版本保證啟動時不會執行網路或 yt-dlp，請在輸入網址後按「開始解析」。")
-st.info("若啟動仍卡住，請先執行最小測試檔確認 Streamlit 能正常顯示 UI。")
+st.set_page_config(page_title="YouTube 點唱機（m3u8 播放器）", layout="wide")
+st.markdown("<h1 style='margin-bottom:6px;'>🎵 YouTube 點唱機（m3u8 播放器）</h1>", unsafe_allow_html=True)
+st.write("貼上 YouTube 影片或播放清單網址 → 產生高畫質 m3u8 串流，左側選歌、右側像點唱機一樣播放。")
 
 # -------------------------------
-# 使用者輸入（UI 立即顯示）
+# 小樣式（讓介面像點唱機）
 # -------------------------------
-urls_input = st.text_area("貼上 YouTube 影片或播放清單網址（每行一個）", height=140)
-uploaded_cookies = st.file_uploader("（選擇性）上傳 cookies.txt（Netscape 格式）", type=["txt"])
-max_workers = st.number_input("並行解析影片數（建議 1-4，預設 2）", min_value=1, max_value=8, value=2, step=1)
-batch_size = st.number_input("分批處理大小（避免一次處理過多，預設 6）", min_value=1, max_value=32, value=6, step=1)
-debug_mode = st.checkbox("顯示詳細錯誤（開發用）", value=False)
+st.markdown(
+    """
+    <style>
+    .jukebox { display:flex; gap:18px; align-items:flex-start; }
+    .left-panel { width:36%; background:#0f1724; color:#e6eef8; padding:14px; border-radius:10px; }
+    .right-panel { flex:1; background:linear-gradient(180deg,#071021,#0b1b2b); color:#fff; padding:18px; border-radius:10px; }
+    .song-item { padding:8px 10px; border-radius:6px; margin-bottom:6px; background:rgba(255,255,255,0.02); }
+    .song-item:hover { background:rgba(255,255,255,0.04); }
+    .cover { width:100%; max-width:420px; border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.6); }
+    .controls button { margin-right:8px; }
+    .queue-item { padding:6px 8px; border-radius:6px; background:rgba(255,255,255,0.02); margin-bottom:6px; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
-st.markdown("---")
-st.write("按下「開始解析並產生清單」後才會開始網路抓取與解析。")
+# -------------------------------
+# 輸入區（上方）
+# -------------------------------
+with st.expander("輸入 YouTube 影片或播放清單網址（每行一個）", expanded=False):
+    urls_input = st.text_area("網址（每行一個）", height=120)
+    uploaded_cookies = st.file_uploader("（選擇性）上傳 cookies.txt（Netscape 格式）", type=["txt"])
+    max_workers = st.number_input("並行解析影片數（建議 1-4）", min_value=1, max_value=8, value=2, step=1)
+    batch_size = st.number_input("分批處理大小（預設 6）", min_value=1, max_value=32, value=6, step=1)
+    debug_mode = st.checkbox("顯示詳細錯誤（開發用）", value=False)
+    parse_btn = st.button("開始解析並產生清單")
 
 # -------------------------------
 # 工具函式（不在 import 時執行網路）
@@ -96,17 +113,15 @@ def fetch_best_m3u8_for_video(video_url, cookiefile=None, timeout=25, quiet=True
 def export_m3u8_list(results):
     lines = [f"{r['title']} | {r['url']}" for r in results if r.get("url")]
     return "\n".join(lines)
-# app.py (part 2 of 2)
 
 # -------------------------------
-# 主流程（僅在按鈕按下時執行）
+# 解析按鈕觸發（將結果存入 session_state）
 # -------------------------------
-if st.button("開始解析並產生清單"):
+if parse_btn:
     urls = [u.strip() for u in urls_input.splitlines() if u.strip()]
     if not urls:
-        st.warning("請輸入至少一個 YouTube 影片或播放清單網址。")
+        st.warning("請輸入至少一個網址")
     else:
-        # 暫存 cookies（若有）
         cookiefile_path = None
         if uploaded_cookies:
             tmp = tempfile.NamedTemporaryFile(delete=False)
@@ -116,9 +131,8 @@ if st.button("開始解析並產生清單"):
             cookiefile_path = tmp.name
             st.info("已上傳 cookies（暫存），解析時會使用它。")
 
-        # 展開輸入（playlist -> 條目）
         to_process = []
-        with st.spinner("展開輸入並列出影片條目（若為 playlist，會先快速列出條目）..."):
+        with st.spinner("展開並列出影片條目..."):
             for u in urls:
                 if "playlist" in u or "list=" in u:
                     try:
@@ -140,11 +154,8 @@ if st.button("開始解析並產生清單"):
         total_estimate = len(to_process)
         st.info(f"總共要解析 {total_estimate} 支影片（分批並行處理）")
 
-        # 分批並行解析
         results = []
-        if total_estimate == 0:
-            st.warning("找不到任何影片條目。")
-        else:
+        if total_estimate > 0:
             overall_progress = st.progress(0)
             status = st.empty()
             done = 0
@@ -173,70 +184,171 @@ if st.button("開始解析並產生清單"):
             status.empty()
             overall_progress.empty()
 
-        # 清理 cookies 暫存檔
         if cookiefile_path and os.path.exists(cookiefile_path):
             try:
                 os.remove(cookiefile_path)
             except Exception:
                 pass
 
-        # 分類結果並存入 session_state（確保在 rerun 後仍可用）
         playable = [r for r in results if r.get("url")]
         unavailable = [r for r in results if not r.get("url")]
 
         st.session_state["playable"] = playable
         st.session_state["unavailable"] = unavailable
+        # 初始化 jukebox 狀態
+        if "queue" not in st.session_state:
+            st.session_state["queue"] = []
         if "selected_m3u8" not in st.session_state and playable:
             st.session_state["selected_m3u8"] = {"index": 0, "title": playable[0]["title"], "url": playable[0]["url"]}
+        st.success(f"解析完成：可播放 {len(playable)} 項，無法取得 {len(unavailable)} 項")
 
 # -------------------------------
-# 顯示結果（使用 session_state 儲存與讀取）
+# Jukebox 介面（左右兩欄）
 # -------------------------------
 playable = st.session_state.get("playable", [])
 unavailable = st.session_state.get("unavailable", [])
+queue = st.session_state.get("queue", [])
+selected = st.session_state.get("selected_m3u8")
 
-if playable:
-    st.subheader("✅ 可播放的 m3u8 清單")
-    st.download_button("📥 下載 m3u8 清單（每行：title | url）", export_m3u8_list(playable), file_name="m3u8_list.txt", mime="text/plain")
+search_query = st.text_input("搜尋歌單（標題關鍵字）", value="")
 
-    st.markdown("**點選下列任一項以在下方播放器播放**")
-    cols = st.columns([4, 1])
-    with cols[0]:
-        for i, it in enumerate(playable):
-            key = f"play_item_{i}"
-            if st.button(f"{i+1}. {it['title']}", key=key):
-                st.session_state["selected_m3u8"] = {"index": i, "title": it["title"], "url": it["url"]}
-    with cols[1]:
-        st.write("共可播放：")
-        st.write(len(playable))
+# 過濾清單
+if search_query:
+    filtered = [p for p in playable if search_query.lower() in (p.get("title") or "").lower()]
+else:
+    filtered = playable
 
-    # 若尚未選擇，預設第一項
-    if "selected_m3u8" not in st.session_state and playable:
-        st.session_state["selected_m3u8"] = {"index": 0, "title": playable[0]["title"], "url": playable[0]["url"]}
+col1, col2 = st.columns([3,7])
+with col1:
+    st.markdown("<div class='left-panel'>", unsafe_allow_html=True)
+    st.markdown("### 🎶 歌單")
+    if not playable:
+        st.info("目前歌單為空。請先貼入網址並解析。")
+    else:
+        # 顯示過濾後的歌單（簡潔）
+        for i, p in enumerate(filtered):
+            idx = playable.index(p)  # 原始索引
+            st.markdown(f"<div class='song-item'>", unsafe_allow_html=True)
+            st.write(f"**{idx+1}. {p.get('title')[:80]}**")
+            cols = st.columns([3,1,1])
+            with cols[0]:
+                if st.button("播放", key=f"play_{idx}"):
+                    st.session_state["selected_m3u8"] = {"index": idx, "title": p["title"], "url": p["url"]}
+            with cols[1]:
+                if st.button("加入佇列", key=f"queue_add_{idx}"):
+                    # 加入佇列（避免重複）
+                    if p not in queue:
+                        queue.append(p)
+                        st.session_state["queue"] = queue
+            with cols[2]:
+                if st.button("移除", key=f"remove_{idx}"):
+                    # 從 playable 中移除（並更新 session）
+                    new_playable = [x for x in playable if x != p]
+                    st.session_state["playable"] = new_playable
+                    # 若被選中，重設選擇
+                    if selected and selected.get("url") == p.get("url"):
+                        st.session_state.pop("selected_m3u8", None)
+                        if new_playable:
+                            st.session_state["selected_m3u8"] = {"index": 0, "title": new_playable[0]["title"], "url": new_playable[0]["url"]}
+            st.markdown("</div>", unsafe_allow_html=True)
 
-    # 取得選擇並做安全檢查
-    sel = st.session_state.get("selected_m3u8")
-    if sel:
-        sel_index = sel.get("index", 0)
+    st.markdown("---")
+    st.markdown("### ▶️ 播放佇列")
+    if not queue:
+        st.write("佇列為空，點「加入佇列」把歌曲放進來。")
+    else:
+        for qi, q in enumerate(queue):
+            st.markdown(f"<div class='queue-item'>{qi+1}. {q.get('title')[:80]}</div>", unsafe_allow_html=True)
+        qcols = st.columns([1,1,1])
+        with qcols[0]:
+            if st.button("清空佇列"):
+                st.session_state["queue"] = []
+        with qcols[1]:
+            if st.button("播放佇列第一首"):
+                if queue:
+                    first = queue.pop(0)
+                    st.session_state["selected_m3u8"] = {"index": playable.index(first) if first in playable else 0, "title": first["title"], "url": first["url"]}
+                    st.session_state["queue"] = queue
+        with qcols[2]:
+            if st.button("加入全部到佇列"):
+                for p in playable:
+                    if p not in queue:
+                        queue.append(p)
+                st.session_state["queue"] = queue
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+with col2:
+    st.markdown("<div class='right-panel'>", unsafe_allow_html=True)
+    # 點唱機顯示區
+    if not selected:
+        st.markdown("<h3 style='color:#cfe8ff;'>尚未選擇歌曲</h3>", unsafe_allow_html=True)
+        st.write("請在左側歌單選擇一首或加入佇列後播放。")
+    else:
+        sel_index = selected.get("index", 0)
+        # 安全檢查索引
         if sel_index < 0 or sel_index >= len(playable):
             sel_index = 0
             st.session_state["selected_m3u8"] = {"index": 0, "title": playable[0]["title"], "url": playable[0]["url"]}
 
+        sel_item = playable[sel_index]
+        st.markdown(f"<h2 style='margin-bottom:6px;color:#fff;'>{sel_item.get('title')}</h2>", unsafe_allow_html=True)
+        # cover placeholder
+        st.image("https://placehold.co/640x360/0b1b2b/ffffff?text=YouTube+Cover", caption="", use_column_width=False, width=640, clamp=True)
+
+        # Player controls and settings
+        control_cols = st.columns([1,1,1,2,2])
+        with control_cols[0]:
+            if st.button("◀ 上一首"):
+                # 找到上一首索引
+                new_idx = (sel_index - 1) % len(playable) if playable else 0
+                st.session_state["selected_m3u8"] = {"index": new_idx, "title": playable[new_idx]["title"], "url": playable[new_idx]["url"]}
+        with control_cols[1]:
+            # Play/Pause handled by JS; here we provide a "重新載入"按鈕來觸發前端播放
+            if st.button("▶ 播放"):
+                st.session_state["selected_m3u8"] = {"index": sel_index, "title": sel_item["title"], "url": sel_item["url"]}
+        with control_cols[2]:
+            if st.button("下一首 ▶"):
+                new_idx = (sel_index + 1) % len(playable) if playable else 0
+                st.session_state["selected_m3u8"] = {"index": new_idx, "title": playable[new_idx]["title"], "url": playable[new_idx]["url"]}
+        with control_cols[3]:
+            loop_mode = st.checkbox("循環播放", value=st.session_state.get("loop", False))
+            st.session_state["loop"] = loop_mode
+        with control_cols[4]:
+            shuffle_mode = st.checkbox("隨機播放", value=st.session_state.get("shuffle", False))
+            st.session_state["shuffle"] = shuffle_mode
+
+        # Volume slider
+        vol = st.slider("音量", min_value=0, max_value=100, value=80, step=1, key="volume_slider")
+
+        # Download / export
+        dl_cols = st.columns([1,1,1])
+        with dl_cols[0]:
+            if st.button("下載 m3u8 清單"):
+                st.download_button("下載", export_m3u8_list(playable), file_name="m3u8_list.txt")
+        with dl_cols[1]:
+            if st.button("從佇列播放下一首"):
+                if queue:
+                    nxt = queue.pop(0)
+                    st.session_state["selected_m3u8"] = {"index": playable.index(nxt) if nxt in playable else 0, "title": nxt["title"], "url": nxt["url"]}
+                    st.session_state["queue"] = queue
+        with dl_cols[2]:
+            if st.button("移除目前歌曲"):
+                # 從 playable 中移除
+                new_playable = [x for x in playable if x != sel_item]
+                st.session_state["playable"] = new_playable
+                st.session_state.pop("selected_m3u8", None)
+                if new_playable:
+                    st.session_state["selected_m3u8"] = {"index": 0, "title": new_playable[0]["title"], "url": new_playable[0]["url"]}
+
+        # 前端播放器（HLS）
         player_id = "player_" + uuid.uuid4().hex[:8]
         js_list = [{"name": p["title"], "url": p["url"]} for p in playable]
 
+        # Build HTML/JS player. It will read volume from a query param set by Streamlit rerun.
         html = f'''
-        <div style="display:flex;flex-direction:column;align-items:center;">
-          <div id="{player_id}_title" style="font-weight:600;margin-bottom:8px;">正在播放：{playable[sel_index]["title"]}</div>
-          <video id="{player_id}" controls autoplay playsinline style="width:100%;max-width:960px;height:auto;background:black;"></video>
-          <div style="margin-top:8px;">
-            <button id="{player_id}_prev">◀ 上一則</button>
-            <button id="{player_id}_next">下一則 ▶</button>
-            <span id="{player_id}_info" style="margin-left:12px;"></span>
-          </div>
-          <div id="{player_id}_overlay" style="display:none;margin-top:8px;color:#c33;font-size:14px;">
-            自動播放被瀏覽器阻擋，請按播放並取消靜音以聽聲音。
-          </div>
+        <div style="margin-top:12px;">
+          <video id="{player_id}" controls playsinline style="width:100%;max-width:960px;height:auto;background:black;"></video>
         </div>
 
         <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js"></script>
@@ -245,17 +357,11 @@ if playable:
             const list = {js_list!r};
             let idx = {sel_index};
             const video = document.getElementById("{player_id}");
-            const title = document.getElementById("{player_id}_title");
-            const prevBtn = document.getElementById("{player_id}_prev");
-            const nextBtn = document.getElementById("{player_id}_next");
-            const overlay = document.getElementById("{player_id}_overlay");
-
-            function updateInfo() {{
-                const cur = list[idx];
-                title.innerText = "正在播放：" + cur.name;
-            }}
+            const volume = {st.session_state.get("volume_slider", 80)} / 100.0;
+            video.volume = volume;
 
             function attachHls(url) {{
+                if (!url) return;
                 if (video.canPlayType('application/vnd.apple.mpegurl')) {{
                     video.src = url;
                 }} else if (Hls.isSupported()) {{
@@ -272,39 +378,45 @@ if playable:
                 }}
             }}
 
-            async function loadSrc(url) {{
-                video.muted = false;
-                attachHls(url);
-                try {{ await video.play(); overlay.style.display = "none"; }} catch (err) {{ overlay.style.display = "block"; }}
+            function loadAndPlay(i) {{
+                if (!list || list.length === 0) return;
+                idx = i % list.length;
+                attachHls(list[idx].url);
+                setTimeout(()=>{{ try{{ video.play(); }}catch(e){{}} }}, 300);
             }}
 
-            function gotoIndex(newIdx) {{
-                if (list.length === 0) return;
-                if (newIdx < 0) newIdx = list.length - 1;
-                if (newIdx >= list.length) newIdx = 0;
-                idx = newIdx;
-                updateInfo();
-                loadSrc(list[idx].url);
-            }}
+            // initial load
+            loadAndPlay(idx);
 
-            prevBtn.addEventListener('click', ()=> gotoIndex(idx-1));
-            nextBtn.addEventListener('click', ()=> gotoIndex(idx+1));
-            document.addEventListener('keydown', function(e) {{
-                const tag = (document.activeElement && document.activeElement.tagName) || '';
-                if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement && document.activeElement.isContentEditable) return;
-                if (e.key === 'ArrowLeft') gotoIndex(idx-1);
-                if (e.key === 'ArrowRight') gotoIndex(idx+1);
+            // handle ended event for queue/loop/shuffle
+            video.addEventListener('ended', function() {{
+                const loop = {str(st.session_state.get("loop", False)).lower()};
+                const shuffle = {str(st.session_state.get("shuffle", False)).lower()};
+                if (shuffle) {{
+                    idx = Math.floor(Math.random() * list.length);
+                }} else {{
+                    idx = (idx + 1) % list.length;
+                }}
+                if (!loop && idx === 0 && !shuffle) {{
+                    // reached end and not looping: do nothing
+                    return;
+                }}
+                loadAndPlay(idx);
             }});
 
-            updateInfo();
-            if (list.length > 0) loadSrc(list[idx].url);
+            // expose simple prev/next via DOM events (buttons trigger rerun which updates idx)
         }})();
         </script>
         '''
-        st.components.v1.html(html, height=640)
-else:
-    st.warning("目前沒有可播放的 m3u8 項目。請檢查輸入的網址或上傳 cookies（若影片需要登入）。")
-    if unavailable:
-        st.subheader("❌ 無法取得 m3u8 的項目")
-        for u in unavailable:
-            st.write(f"- {u.get('title') or u.get('url')} → {u.get('error', '找不到 HLS 格式')}")
+        st.components.v1.html(html, height=420)
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# -------------------------------
+# 顯示無法取得的項目（底部）
+# -------------------------------
+if unavailable:
+    st.markdown("---")
+    st.subheader("❌ 無法取得 m3u8 的項目")
+    for u in unavailable:
+        st.write(f"- {u.get('title') or u.get('url')} → {u.get('error', '找不到 HLS 格式')}")
