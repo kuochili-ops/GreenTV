@@ -8,8 +8,8 @@ from urllib.parse import urlparse
 
 # 頁面設定
 st.set_page_config(page_title="綠的電視", layout="wide")
-st.title("自動播放，側面箭頭切台")
-st.write("頁面載入後自動從三立新聞開始播放；使用左右箭頭、鍵盤左右鍵或滑動切換頻道。若直播需要登入驗證，請上傳 cookies.txt（Netscape 格式）。")
+st.title("自動播放，左右切換頻道")
+st.write("頁面載入後自動從三立新聞開始播放；使用左右名稱點擊、鍵盤左右鍵或滑動切換頻道。若直播需要登入驗證，請上傳 cookies.txt（Netscape 格式）。")
 
 # 頻道清單
 CHANNELS = [
@@ -120,30 +120,30 @@ else:
 
     html = f"""
     <div style="display:flex;flex-direction:column;align-items:center;">
-      <div id="{player_id}_title" style="font-weight:600;margin-bottom:8px;">正在播放：{player_list[0]['name']}</div>
       <video id="{player_id}" controls autoplay playsinline style="width:100%;max-width:960px;height:auto;background:black;"></video>
 
-      <!-- 側面箭頭 UI -->
-      <div style="margin-top:16px;display:flex;align-items:center;justify-content:center;font-size:18px;">
-        <div id="{player_id}_prev" style="cursor:pointer;color:#007bff;margin-right:20px;">◀ {player_list[-1]['name']}</div>
-        <div id="{player_id}_next" style="cursor:pointer;color:#007bff;margin-left:20px;">{player_list[1]['name']} ▶</div>
+      <!-- 三欄顯示：左(上一頻道) 中(目前頻道) 右(下一頻道) -->
+      <div style="margin-top:16px;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:bold;">
+        <div id="{player_id}_prev" style="cursor:pointer;color:#007bff;margin-right:40px;">{player_list[-1]['name']}</div>
+        <div id="{player_id}_current" style="margin:0 40px;">{player_list[0]['name']}</div>
+        <div id="{player_id}_next" style="cursor:pointer;color:#007bff;margin-left:40px;">{player_list[1]['name']}</div>
       </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js"></script>
+    https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js</script>
     <script>
     (function(){{
         const list = {player_list!r};
         let idx = 0;
         const video = document.getElementById("{player_id}");
-        const title = document.getElementById("{player_id}_title");
         const prevName = document.getElementById("{player_id}_prev");
         const nextName = document.getElementById("{player_id}_next");
+        const currentName = document.getElementById("{player_id}_current");
 
         function updateUI(){{
-            title.innerText = "正在播放：" + list[idx].name;
-            prevName.innerText = "◀ " + list[(idx-1+list.length)%list.length].name;
-            nextName.innerText = list[(idx+1)%list.length].name + " ▶";
+            prevName.innerText = list[(idx-1+list.length)%list.length].name;
+            currentName.innerText = list[idx].name;
+            nextName.innerText = list[(idx+1)%list.length].name;
         }}
 
         function attachHls(url){{
