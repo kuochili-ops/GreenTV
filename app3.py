@@ -193,7 +193,6 @@ selected_index = st.session_state.get("selected_index", None)
 selected_play = st.session_state.get("selected_m3u8", None)
 
 # Convert playable to safe JSON for injection
-# Escape titles to avoid accidental HTML injection in attributes
 safe_playable = []
 for p in playable:
     safe_playable.append({
@@ -206,16 +205,33 @@ js_list = json.dumps(safe_playable)
 init_selected = selected_index if selected_index is not None else 0
 
 # -------------------------------
-# HTML template (sticky top panel + scroll list + HLS player)
-# --- 建議替換：使用佔位符再 replace，避免 f-string 與 JS 大括號衝突 ---
-html_template = """
+# HTML template (ordinary triple-quoted string, placeholders {JS_LIST} and {INIT_SELECTED})
+# -------------------------------
+html_template = '''
 <!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-  /* ... 省略 CSS（與原本相同） ... */
+  body { margin:0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial; color:#e6eef8; background:transparent; }
+  .wrap { display:flex; gap:18px; padding:12px; box-sizing:border-box; }
+  .left { width:36%; min-width:260px; background:#0f1724; padding:12px; border-radius:10px; box-sizing:border-box; }
+  .right { flex:1; background:linear-gradient(180deg,#071021,#0b1b2b); padding:18px; border-radius:10px; box-sizing:border-box; color:#fff; }
+  .top-panel { position:sticky; top:12px; background:rgba(255,255,255,0.02); padding:10px; border-radius:8px; margin-bottom:12px; }
+  .scroll-area { max-height:520px; overflow:auto; padding-right:6px; }
+  .song-item { padding:10px; border-radius:6px; margin-bottom:8px; background:rgba(255,255,255,0.02); display:flex; align-items:center; justify-content:space-between; }
+  .song-meta { flex:1; padding-right:12px; color:#e6eef8; }
+  .queue-item { padding:6px 8px; border-radius:6px; background:rgba(255,255,255,0.02); margin-bottom:6px; color:#e6eef8; }
+  .btn { padding:8px 12px; border-radius:6px; background:#1f6feb; color:white; border:none; cursor:pointer; }
+  .small-btn { padding:6px 8px; border-radius:6px; background:transparent; border:1px solid rgba(255,255,255,0.06); color:#cfe8ff; cursor:pointer; }
+  .selected { outline:2px solid rgba(31,111,235,0.25); }
+  video { background:black; border-radius:6px; }
+  @media (max-width:900px) {
+    .wrap { flex-direction:column; }
+    .left { width:100%; }
+    .right { width:100%; }
+  }
 </style>
 </head>
 <body>
@@ -258,7 +274,7 @@ html_template = """
 
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js"></script>
 <script>
-  // 由 Python 注入的資料佔位符（不要改這裡的花括號）
+  // 由 Python 注入的資料佔位符（稍後用 replace 注入）
   const list = {JS_LIST};
   let selectedIndex = {INIT_SELECTED};
   let queue = [];
@@ -374,18 +390,17 @@ html_template = """
 </script>
 </body>
 </html>
-"""
+'''
 
-# 用 replace 注入資料（安全且不會破壞 JS 的大括號）
+# 注入資料（用 replace，不用 f-string）
 html_template = html_template.replace("{JS_LIST}", js_list).replace("{INIT_SELECTED}", str(init_selected))
-"""
 
 # -------------------------------
 # Render HTML component
 # -------------------------------
-# If no playable items, show a helpful message and still render the HTML with empty list
 st.components.v1.html(html_template, height=720, scrolling=True)
-# Also show a small Streamlit-side control area for exporting or clearing session if desired
+
+# Streamlit-side controls
 st.markdown("---")
 col_a, col_b, col_c = st.columns([1,1,1])
 with col_a:
