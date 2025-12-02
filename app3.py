@@ -20,7 +20,7 @@ play_mode = st.selectbox("播放模式", [
 
 start_button = st.button("產生播放清單")
 
-# 解析 YouTube 連結
+# yt-dlp 解析函式
 def fetch_info(url: str, extract_flat=False):
     ydl_opts = {
         "quiet": True,
@@ -106,7 +106,7 @@ if playlist:
     html += "</ul></div></div>"
 
     html += """
-    https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js</script>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js"></script>
     <script>
     (function(){
         const list = """ + str(playlist).replace("'", '"') + """;
@@ -116,12 +116,14 @@ if playlist:
         function highlightCurrent(){
             for(let i=0;i<list.length;i++){
                 const li = document.getElementById('item_'+i);
-                if(i===idx){
-                    li.style.color='red';
-                    li.style.fontWeight='bold';
-                } else {
-                    li.style.color='#007bff';
-                    li.style.fontWeight='normal';
+                if(li){
+                    if(i===idx){
+                        li.style.color='red';
+                        li.style.fontWeight='bold';
+                    } else {
+                        li.style.color='#007bff';
+                        li.style.fontWeight='normal';
+                    }
                 }
             }
         }
@@ -153,15 +155,16 @@ if playlist:
         }
 
         function nextVideo(){
-            if('""" + play_mode + """' === '播放一次後停止'){
+            const mode = '""" + play_mode + """';
+            if(mode === '播放一次後停止'){
                 return;
-            } else if('""" + play_mode + """' === '播放一次後播放下一段'){
+            } else if(mode === '播放一次後播放下一段'){
                 if(idx < list.length - 1){gotoIndex(idx+1);}
-            } else if('""" + play_mode + """' === '清單播放一次'){
+            } else if(mode === '清單播放一次'){
                 if(idx < list.length - 1){gotoIndex(idx+1);}
-            } else if('""" + play_mode + """' === '循環播放'){
+            } else if(mode === '循環播放'){
                 gotoIndex((idx+1)%list.length);
-            } else if('""" + play_mode + """' === '隨機播放'){
+            } else if(mode === '隨機播放'){
                 gotoIndex(Math.floor(Math.random()*list.length));
             }
         }
