@@ -8,27 +8,23 @@ import concurrent.futures
 import time
 import traceback
 
-# -------------------------------
-# 頁面設定
-# -------------------------------
-st.set_page_config(page_title="YouTube 點唱機（滑動清單 + 上方操作）", layout="wide")
+# Page config
+st.set_page_config(page_title="YouTube 點唱機（固定上方操作）", layout="wide")
 st.markdown("<h1 style='margin-bottom:6px;'>🎵 YouTube 點唱機</h1>", unsafe_allow_html=True)
-st.write("下方為可滑動候選清單（每項只有「選擇」按鈕），上方為操作面板（播放 / 加入佇列 / 移除）。")
+st.write("上方為固定操作視窗（播放 / 加入佇列 / 移除），下方為可滑動候選清單（每項只有「選擇」按鈕）。")
 
-# -------------------------------
-# CSS（滑動清單與樣式）
-# -------------------------------
+# CSS: sticky top panel + scroll list
 st.markdown(
     """
     <style>
     .container { display:flex; gap:18px; align-items:flex-start; }
-    .left { width:36%; background:#0f1724; color:#e6eef8; padding:14px; border-radius:10px; }
+    .left { width:36%; background:#0f1724; color:#e6eef8; padding:12px; border-radius:10px; }
     .right { flex:1; background:linear-gradient(180deg,#071021,#0b1b2b); color:#fff; padding:18px; border-radius:10px; }
+    .top-panel { position: -webkit-sticky; position: sticky; top: 12px; background: rgba(255,255,255,0.02); padding:12px; border-radius:8px; margin-bottom:12px; }
     .scroll-area { max-height:520px; overflow:auto; padding-right:6px; }
     .song-item { padding:10px; border-radius:6px; margin-bottom:8px; background:rgba(255,255,255,0.02); display:flex; align-items:center; justify-content:space-between; }
     .song-meta { flex:1; padding-right:12px; color:#e6eef8; }
     .queue-item { padding:6px 8px; border-radius:6px; background:rgba(255,255,255,0.02); margin-bottom:6px; color:#e6eef8; }
-    .op-panel { display:flex; gap:8px; margin-bottom:10px; align-items:center; }
     .op-btn { padding:8px 12px; border-radius:6px; background:#1f6feb; color:white; border:none; cursor:pointer; }
     .op-btn:disabled { background:#555; cursor:not-allowed; }
     </style>
@@ -36,9 +32,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# -------------------------------
-# 輸入區（上方）
-# -------------------------------
+# Input area (collapsed)
 with st.expander("輸入 YouTube 影片或播放清單網址（每行一個）", expanded=False):
     urls_input = st.text_area("網址（每行一個）", height=120)
     uploaded_cookies = st.file_uploader("（選擇性）上傳 cookies.txt（Netscape 格式）", type=["txt"])
@@ -47,9 +41,7 @@ with st.expander("輸入 YouTube 影片或播放清單網址（每行一個）",
     debug_mode = st.checkbox("顯示詳細錯誤（開發用）", value=False)
     parse_btn = st.button("開始解析並產生清單")
 
-# -------------------------------
-# 工具函式（不在 import 時執行網路）
-# -------------------------------
+# Helper functions
 def fetch_info(url, cookiefile=None, timeout=30, extract_flat=False, quiet=True):
     opts = {
         "skip_download": True,
@@ -115,9 +107,7 @@ def export_m3u8_list(results):
     lines = [f"{r['title']} | {r['url']}" for r in results if r.get("url")]
     return "\n".join(lines)
 
-# -------------------------------
-# 解析按鈕觸發（將結果存入 session_state）
-# -------------------------------
+# Parse button logic
 if parse_btn:
     urls = [u.strip() for u in urls_input.splitlines() if u.strip()]
     if not urls:
@@ -198,14 +188,11 @@ if parse_btn:
         st.session_state["unavailable"] = unavailable
         if "queue" not in st.session_state:
             st.session_state["queue"] = []
-        # selected_index 用來記錄目前在滑動清單中被選擇的項目
-        if "selected_index" not in st.session_state:
-            st.session_state["selected_index"] = 0 if playable else None
+        # selected_index records which item in the scroll list is highlighted
+        st.session_state["selected_index"] = 0 if playable else None
         st.success(f"解析完成：可播放 {len(playable)} 項，無法取得 {len(unavailable)} 項")
 
-# -------------------------------
-# 介面：左側為滑動清單（下），上方為操作面板（對選中項目）
-# -------------------------------
+# UI layout: left (sticky top panel + scroll list), right (player)
 playable = st.session_state.get("playable", [])
 unavailable = st.session_state.get("unavailable", [])
 queue = st.session_state.get("queue", [])
@@ -215,18 +202,15 @@ col_left, col_right = st.columns([3,7])
 
 with col_left:
     st.markdown("<div class='left'>", unsafe_allow_html=True)
-    st.markdown("### 候選清單（滑動視窗）")
-
-    # 操作面板（上方） - 對 selected_index 生效
-    st.markdown("<div class='op-panel'>", unsafe_allow_html=True)
-    # 顯示目前選中項目標題（簡短）
+    # Top sticky panel
+    st.markdown("<div class='top-panel'>", unsafe_allow_html=True)
+    st.markdown("### 操作面板")
     if selected_index is None or not playable:
         st.markdown("<div style='color:#cfe8ff;'>尚未選擇項目</div>", unsafe_allow_html=True)
     else:
         cur = playable[selected_index]
-        st.markdown(f"<div style='color:#cfe8ff;flex:1;'>選擇：{selected_index+1}. {cur.get('title')[:80]}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='color:#cfe8ff;'>選擇：{selected_index+1}. {cur.get('title')[:100]}</div>", unsafe_allow_html=True)
 
-    # 三個操作按鈕（播放 / 加入佇列 / 移除）
     op_cols = st.columns([1,1,1])
     with op_cols[0]:
         if st.button("▶ 播放", key="op_play"):
@@ -245,26 +229,28 @@ with col_left:
                 item = playable[selected_index]
                 new_playable = [x for x in playable if x != item]
                 st.session_state["playable"] = new_playable
-                # 調整選中索引
                 if new_playable:
                     new_idx = min(selected_index, len(new_playable)-1)
                     st.session_state["selected_index"] = new_idx
                 else:
                     st.session_state["selected_index"] = None
-                # 若被選為播放中，取消或重設
                 if "selected_m3u8" in st.session_state and st.session_state["selected_m3u8"].get("url") == item.get("url"):
                     st.session_state.pop("selected_m3u8", None)
     st.markdown("</div>", unsafe_allow_html=True)
 
+    # Scrollable list below
     st.markdown('<div class="scroll-area">', unsafe_allow_html=True)
-    # 顯示滑動清單：每項只有一個「選擇」按鈕
+    st.markdown("### 候選清單（滑動視窗）")
     if not playable:
         st.info("候選清單為空，請先解析網址。")
     else:
         for i, p in enumerate(playable):
-            st.markdown("<div class='song-item'>", unsafe_allow_html=True)
+            # highlight selected item visually
+            if selected_index == i:
+                st.markdown(f"<div class='song-item' style='outline:2px solid rgba(31,111,235,0.25);'>", unsafe_allow_html=True)
+            else:
+                st.markdown("<div class='song-item'>", unsafe_allow_html=True)
             st.markdown(f"<div class='song-meta'>{i+1}. {p.get('title')[:140]}</div>", unsafe_allow_html=True)
-            # 單一選擇按鈕（避免每項列三個按鈕）
             if st.button("選擇", key=f"select_{i}"):
                 st.session_state["selected_index"] = i
             st.markdown("</div>", unsafe_allow_html=True)
@@ -285,7 +271,6 @@ with col_left:
             if st.button("播放佇列第一首", key="queue_play_first"):
                 if queue:
                     first = queue.pop(0)
-                    # 若 first 在 playable 中，設定為該索引
                     if first in playable:
                         st.session_state["selected_index"] = playable.index(first)
                     st.session_state["selected_m3u8"] = {"index": st.session_state.get("selected_index", 0), "title": first["title"], "url": first["url"]}
@@ -301,14 +286,12 @@ with col_left:
 
 with col_right:
     st.markdown("<div class='right'>", unsafe_allow_html=True)
-    # 播放顯示區
     selected_play = st.session_state.get("selected_m3u8")
     if not selected_play:
         st.markdown("<h3 style='color:#cfe8ff;'>尚未播放</h3>", unsafe_allow_html=True)
         st.write("請在左側滑動清單選擇一首，然後按上方的「▶ 播放」。")
     else:
         sel_index = selected_play.get("index", 0)
-        # 安全檢查
         if sel_index < 0 or sel_index >= len(playable):
             sel_index = 0
             if playable:
@@ -359,7 +342,7 @@ with col_right:
                         if new_playable:
                             st.session_state["selected_m3u8"] = {"index": 0, "title": new_playable[0]["title"], "url": new_playable[0]["url"]}
 
-            # 前端播放器（HLS）
+            # Frontend HLS player
             player_id = "player_" + uuid.uuid4().hex[:8]
             js_list = [{"name": p["title"], "url": p["url"]} for p in playable]
 
@@ -424,9 +407,7 @@ with col_right:
 
     st.markdown("</div>", unsafe_allow_html=True)
 
-# -------------------------------
-# 顯示無法取得的項目（底部）
-# -------------------------------
+# Show unavailable items
 if unavailable:
     st.markdown("---")
     st.subheader("❌ 無法取得 m3u8 的項目")
