@@ -4,7 +4,6 @@ from yt_dlp import YoutubeDL
 import tempfile
 import os
 import uuid
-from urllib.parse import urlparse
 import concurrent.futures
 import time
 import traceback
@@ -12,26 +11,26 @@ import traceback
 # -------------------------------
 # 頁面設定
 # -------------------------------
-st.set_page_config(page_title="YouTube 點唱機（滑動選單）", layout="wide")
-st.markdown("<h1 style='margin-bottom:6px;'>🎵 YouTube 點唱機（滑動選單）</h1>", unsafe_allow_html=True)
-st.write("貼上 YouTube 影片或播放清單網址 → 產生高畫質 m3u8 串流，左側為單一可滑動視窗的候選清單，點選項目可播放 / 加入佇列 / 移除。")
+st.set_page_config(page_title="YouTube 點唱機（滑動清單 + 上方操作）", layout="wide")
+st.markdown("<h1 style='margin-bottom:6px;'>🎵 YouTube 點唱機</h1>", unsafe_allow_html=True)
+st.write("下方為可滑動候選清單（每項只有「選擇」按鈕），上方為操作面板（播放 / 加入佇列 / 移除）。")
 
 # -------------------------------
-# CSS（滑動選單樣式）
+# CSS（滑動清單與樣式）
 # -------------------------------
 st.markdown(
     """
     <style>
-    .jukebox { display:flex; gap:18px; align-items:flex-start; }
-    .left-panel { width:36%; background:#0f1724; color:#e6eef8; padding:14px; border-radius:10px; }
-    .right-panel { flex:1; background:linear-gradient(180deg,#071021,#0b1b2b); color:#fff; padding:18px; border-radius:10px; }
+    .container { display:flex; gap:18px; align-items:flex-start; }
+    .left { width:36%; background:#0f1724; color:#e6eef8; padding:14px; border-radius:10px; }
+    .right { flex:1; background:linear-gradient(180deg,#071021,#0b1b2b); color:#fff; padding:18px; border-radius:10px; }
     .scroll-area { max-height:520px; overflow:auto; padding-right:6px; }
     .song-item { padding:10px; border-radius:6px; margin-bottom:8px; background:rgba(255,255,255,0.02); display:flex; align-items:center; justify-content:space-between; }
     .song-meta { flex:1; padding-right:12px; color:#e6eef8; }
-    .song-actions { display:flex; gap:6px; }
     .queue-item { padding:6px 8px; border-radius:6px; background:rgba(255,255,255,0.02); margin-bottom:6px; color:#e6eef8; }
-    .small-btn { background:transparent;border:1px solid rgba(255,255,255,0.06);color:#cfe8ff;padding:6px 8px;border-radius:6px;cursor:pointer; }
-    .small-btn:hover { background:rgba(255,255,255,0.02); }
+    .op-panel { display:flex; gap:8px; margin-bottom:10px; align-items:center; }
+    .op-btn { padding:8px 12px; border-radius:6px; background:#1f6feb; color:white; border:none; cursor:pointer; }
+    .op-btn:disabled { background:#555; cursor:not-allowed; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -199,87 +198,100 @@ if parse_btn:
         st.session_state["unavailable"] = unavailable
         if "queue" not in st.session_state:
             st.session_state["queue"] = []
-        if "selected_m3u8" not in st.session_state and playable:
-            st.session_state["selected_m3u8"] = {"index": 0, "title": playable[0]["title"], "url": playable[0]["url"]}
+        # selected_index 用來記錄目前在滑動清單中被選擇的項目
+        if "selected_index" not in st.session_state:
+            st.session_state["selected_index"] = 0 if playable else None
         st.success(f"解析完成：可播放 {len(playable)} 項，無法取得 {len(unavailable)} 項")
 
 # -------------------------------
-# Jukebox 介面（左右兩欄）
+# 介面：左側為滑動清單（下），上方為操作面板（對選中項目）
 # -------------------------------
 playable = st.session_state.get("playable", [])
 unavailable = st.session_state.get("unavailable", [])
 queue = st.session_state.get("queue", [])
-selected = st.session_state.get("selected_m3u8")
+selected_index = st.session_state.get("selected_index", None)
 
-search_query = st.text_input("搜尋歌單（標題關鍵字）", value="")
+col_left, col_right = st.columns([3,7])
 
-# 過濾清單
-if search_query:
-    filtered = [p for p in playable if search_query.lower() in (p.get("title") or "").lower()]
-else:
-    filtered = playable
+with col_left:
+    st.markdown("<div class='left'>", unsafe_allow_html=True)
+    st.markdown("### 候選清單（滑動視窗）")
 
-col1, col2 = st.columns([3,7])
-with col1:
-    st.markdown("<div class='left-panel'>", unsafe_allow_html=True)
-    st.markdown("### 🎶 候選清單（滑動視窗）")
-    if not playable:
-        st.info("目前歌單為空。請先貼入網址並解析。")
+    # 操作面板（上方） - 對 selected_index 生效
+    st.markdown("<div class='op-panel'>", unsafe_allow_html=True)
+    # 顯示目前選中項目標題（簡短）
+    if selected_index is None or not playable:
+        st.markdown("<div style='color:#cfe8ff;'>尚未選擇項目</div>", unsafe_allow_html=True)
     else:
-        # 開始滑動區塊
-        st.markdown('<div class="scroll-area">', unsafe_allow_html=True)
-        # 顯示過濾後的歌單（在單一可滑動視窗內）
-        for i, p in enumerate(filtered):
-            # 找到原始索引（在 playable 中）
-            try:
-                idx = playable.index(p)
-            except ValueError:
-                idx = i
-            # 每個項目用一個容器顯示標題與按鈕
+        cur = playable[selected_index]
+        st.markdown(f"<div style='color:#cfe8ff;flex:1;'>選擇：{selected_index+1}. {cur.get('title')[:80]}</div>", unsafe_allow_html=True)
+
+    # 三個操作按鈕（播放 / 加入佇列 / 移除）
+    op_cols = st.columns([1,1,1])
+    with op_cols[0]:
+        if st.button("▶ 播放", key="op_play"):
+            if selected_index is not None and playable:
+                st.session_state["selected_m3u8"] = {"index": selected_index, "title": playable[selected_index]["title"], "url": playable[selected_index]["url"]}
+    with op_cols[1]:
+        if st.button("＋ 加入佇列", key="op_queue"):
+            if selected_index is not None and playable:
+                item = playable[selected_index]
+                if item not in queue:
+                    queue.append(item)
+                    st.session_state["queue"] = queue
+    with op_cols[2]:
+        if st.button("🗑 移除", key="op_remove"):
+            if selected_index is not None and playable:
+                item = playable[selected_index]
+                new_playable = [x for x in playable if x != item]
+                st.session_state["playable"] = new_playable
+                # 調整選中索引
+                if new_playable:
+                    new_idx = min(selected_index, len(new_playable)-1)
+                    st.session_state["selected_index"] = new_idx
+                else:
+                    st.session_state["selected_index"] = None
+                # 若被選為播放中，取消或重設
+                if "selected_m3u8" in st.session_state and st.session_state["selected_m3u8"].get("url") == item.get("url"):
+                    st.session_state.pop("selected_m3u8", None)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown('<div class="scroll-area">', unsafe_allow_html=True)
+    # 顯示滑動清單：每項只有一個「選擇」按鈕
+    if not playable:
+        st.info("候選清單為空，請先解析網址。")
+    else:
+        for i, p in enumerate(playable):
             st.markdown("<div class='song-item'>", unsafe_allow_html=True)
-            # 左側標題
-            st.markdown(f"<div class='song-meta'>{idx+1}. {p.get('title')[:120]}</div>", unsafe_allow_html=True)
-            # 右側按鈕（使用 Streamlit 按鈕以保留互動）
-            cols = st.columns([1,1,1])
-            with cols[0]:
-                if st.button("播放", key=f"play_{idx}"):
-                    st.session_state["selected_m3u8"] = {"index": idx, "title": p["title"], "url": p["url"]}
-            with cols[1]:
-                if st.button("加入佇列", key=f"queue_add_{idx}"):
-                    if p not in queue:
-                        queue.append(p)
-                        st.session_state["queue"] = queue
-            with cols[2]:
-                if st.button("移除", key=f"remove_{idx}"):
-                    new_playable = [x for x in playable if x != p]
-                    st.session_state["playable"] = new_playable
-                    # 若被選中，重設選擇
-                    if selected and selected.get("url") == p.get("url"):
-                        st.session_state.pop("selected_m3u8", None)
-                        if new_playable:
-                            st.session_state["selected_m3u8"] = {"index": 0, "title": new_playable[0]["title"], "url": new_playable[0]["url"]}
+            st.markdown(f"<div class='song-meta'>{i+1}. {p.get('title')[:140]}</div>", unsafe_allow_html=True)
+            # 單一選擇按鈕（避免每項列三個按鈕）
+            if st.button("選擇", key=f"select_{i}"):
+                st.session_state["selected_index"] = i
             st.markdown("</div>", unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)  # close scroll-area
+    st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown("---")
     st.markdown("### ▶️ 播放佇列")
     if not queue:
-        st.write("佇列為空，點「加入佇列」把歌曲放進來。")
+        st.write("佇列為空，使用上方「＋ 加入佇列」把歌曲放進來。")
     else:
         for qi, q in enumerate(queue):
             st.markdown(f"<div class='queue-item'>{qi+1}. {q.get('title')[:100]}</div>", unsafe_allow_html=True)
         qcols = st.columns([1,1,1])
         with qcols[0]:
-            if st.button("清空佇列"):
+            if st.button("清空佇列", key="queue_clear"):
                 st.session_state["queue"] = []
         with qcols[1]:
-            if st.button("播放佇列第一首"):
+            if st.button("播放佇列第一首", key="queue_play_first"):
                 if queue:
                     first = queue.pop(0)
-                    st.session_state["selected_m3u8"] = {"index": playable.index(first) if first in playable else 0, "title": first["title"], "url": first["url"]}
+                    # 若 first 在 playable 中，設定為該索引
+                    if first in playable:
+                        st.session_state["selected_index"] = playable.index(first)
+                    st.session_state["selected_m3u8"] = {"index": st.session_state.get("selected_index", 0), "title": first["title"], "url": first["url"]}
                     st.session_state["queue"] = queue
         with qcols[2]:
-            if st.button("加入全部到佇列"):
+            if st.button("加入全部到佇列", key="queue_add_all"):
                 for p in playable:
                     if p not in queue:
                         queue.append(p)
@@ -287,19 +299,20 @@ with col1:
 
     st.markdown("</div>", unsafe_allow_html=True)
 
-with col2:
-    st.markdown("<div class='right-panel'>", unsafe_allow_html=True)
-    # 點唱機顯示區
-    if not selected:
-        st.markdown("<h3 style='color:#cfe8ff;'>尚未選擇歌曲</h3>", unsafe_allow_html=True)
-        st.write("請在左側候選清單選擇一首或加入佇列後播放。")
+with col_right:
+    st.markdown("<div class='right'>", unsafe_allow_html=True)
+    # 播放顯示區
+    selected_play = st.session_state.get("selected_m3u8")
+    if not selected_play:
+        st.markdown("<h3 style='color:#cfe8ff;'>尚未播放</h3>", unsafe_allow_html=True)
+        st.write("請在左側滑動清單選擇一首，然後按上方的「▶ 播放」。")
     else:
-        sel_index = selected.get("index", 0)
+        sel_index = selected_play.get("index", 0)
+        # 安全檢查
         if sel_index < 0 or sel_index >= len(playable):
             sel_index = 0
             if playable:
                 st.session_state["selected_m3u8"] = {"index": 0, "title": playable[0]["title"], "url": playable[0]["url"]}
-
         if playable:
             sel_item = playable[sel_index]
             st.markdown(f"<h2 style='margin-bottom:6px;color:#fff;'>{sel_item.get('title')}</h2>", unsafe_allow_html=True)
@@ -307,42 +320,44 @@ with col2:
 
             control_cols = st.columns([1,1,1,2,2])
             with control_cols[0]:
-                if st.button("◀ 上一首"):
+                if st.button("◀ 上一首", key="ui_prev"):
                     new_idx = (sel_index - 1) % len(playable) if playable else 0
                     st.session_state["selected_m3u8"] = {"index": new_idx, "title": playable[new_idx]["title"], "url": playable[new_idx]["url"]}
             with control_cols[1]:
-                if st.button("▶ 播放"):
+                if st.button("▶ 播放（重載）", key="ui_play"):
                     st.session_state["selected_m3u8"] = {"index": sel_index, "title": sel_item["title"], "url": sel_item["url"]}
             with control_cols[2]:
-                if st.button("下一首 ▶"):
+                if st.button("下一首 ▶", key="ui_next"):
                     new_idx = (sel_index + 1) % len(playable) if playable else 0
                     st.session_state["selected_m3u8"] = {"index": new_idx, "title": playable[new_idx]["title"], "url": playable[new_idx]["url"]}
             with control_cols[3]:
-                loop_mode = st.checkbox("循環播放", value=st.session_state.get("loop", False))
+                loop_mode = st.checkbox("循環播放", value=st.session_state.get("loop", False), key="ui_loop")
                 st.session_state["loop"] = loop_mode
             with control_cols[4]:
-                shuffle_mode = st.checkbox("隨機播放", value=st.session_state.get("shuffle", False))
+                shuffle_mode = st.checkbox("隨機播放", value=st.session_state.get("shuffle", False), key="ui_shuffle")
                 st.session_state["shuffle"] = shuffle_mode
 
             vol = st.slider("音量", min_value=0, max_value=100, value=80, step=1, key="volume_slider")
 
             dl_cols = st.columns([1,1,1])
             with dl_cols[0]:
-                if st.button("下載 m3u8 清單"):
-                    st.download_button("下載", export_m3u8_list(playable), file_name="m3u8_list.txt")
+                st.download_button("下載 m3u8 清單", export_m3u8_list(playable), file_name="m3u8_list.txt")
             with dl_cols[1]:
-                if st.button("從佇列播放下一首"):
+                if st.button("從佇列播放下一首", key="ui_queue_next"):
                     if queue:
                         nxt = queue.pop(0)
-                        st.session_state["selected_m3u8"] = {"index": playable.index(nxt) if nxt in playable else 0, "title": nxt["title"], "url": nxt["url"]}
+                        if nxt in playable:
+                            st.session_state["selected_index"] = playable.index(nxt)
+                        st.session_state["selected_m3u8"] = {"index": st.session_state.get("selected_index", 0), "title": nxt["title"], "url": nxt["url"]}
                         st.session_state["queue"] = queue
             with dl_cols[2]:
-                if st.button("移除目前歌曲"):
-                    new_playable = [x for x in playable if x != sel_item]
-                    st.session_state["playable"] = new_playable
-                    st.session_state.pop("selected_m3u8", None)
-                    if new_playable:
-                        st.session_state["selected_m3u8"] = {"index": 0, "title": new_playable[0]["title"], "url": new_playable[0]["url"]}
+                if st.button("移除目前歌曲（播放中）", key="ui_remove_current"):
+                    if playable:
+                        new_playable = [x for x in playable if x != sel_item]
+                        st.session_state["playable"] = new_playable
+                        st.session_state.pop("selected_m3u8", None)
+                        if new_playable:
+                            st.session_state["selected_m3u8"] = {"index": 0, "title": new_playable[0]["title"], "url": new_playable[0]["url"]}
 
             # 前端播放器（HLS）
             player_id = "player_" + uuid.uuid4().hex[:8]
