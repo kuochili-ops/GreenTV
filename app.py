@@ -18,6 +18,7 @@ CHANNELS = [
     {"name": "鏡新聞", "url": "https://www.youtube.com/live/5n0y6b0Q25o?si=ZufSUna9wrqjZuZx"},
     {"name": "非凡新聞", "url": "https://www.youtube.com/live/wAUx3pywTt8?si=9RB3z_JhUsQyGwb-"},
     {"name": "寰宇新聞", "url": "https://www.youtube.com/live/6IquAgfvYmc?si=FdqxZ7-48v64H7ZZ"},
+    {"name": "ABC News", "url": "https://www.youtube.com/live/Nv3fTBgIMck?si=rbXAixAIqukzvcRC"},
 ]
 
 ALLOWED_HOSTS = ("youtube.com", "www.youtube.com", "youtu.be")
