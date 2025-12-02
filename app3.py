@@ -12,10 +12,10 @@ import traceback
 # -------------------------------
 # 頁面設定（啟動時不做任何耗時工作）
 # -------------------------------
-st.set_page_config(page_title="YouTube m3u8 產生器（非阻塞啟動）", layout="wide")
-st.title("🎬 YouTube m3u8 產生器（非阻塞啟動）")
+st.set_page_config(page_title="YouTube m3u8 產生器（穩定版）", layout="wide")
+st.title("🎬 YouTube m3u8 產生器（穩定版）")
 st.write("此版本保證啟動時不會執行網路或 yt-dlp，請在輸入網址後按「開始解析」。")
-st.info("若啟動仍卡住，請檢查 Python 環境是否能 import yt_dlp、requests 等套件。")
+st.info("若啟動仍卡住，請先執行最小測試檔確認 Streamlit 能正常顯示 UI。")
 
 # -------------------------------
 # 使用者輸入（UI 立即顯示）
@@ -186,6 +186,7 @@ if st.button("開始解析並產生清單"):
         if playable:
             st.subheader("✅ 可播放的 m3u8 清單")
             st.download_button("📥 下載 m3u8 清單（每行：title | url）", export_m3u8_list(playable), file_name="m3u8_list.txt", mime="text/plain")
+
             st.markdown("**點選下列任一項以在下方播放器播放**")
             cols = st.columns([4, 1])
             with cols[0]:
@@ -201,12 +202,18 @@ if st.button("開始解析並產生清單"):
                 st.session_state["selected_m3u8"] = {"index": 0, "title": playable[0]["title"], "url": playable[0]["url"]}
 
             sel = st.session_state.get("selected_m3u8")
-            if sel:
+            if sel and playable:
+                # 安全檢查：確保索引在範圍內
+                sel_index = sel.get("index", 0)
+                if sel_index < 0 or sel_index >= len(playable):
+                    sel_index = 0
                 player_id = "player_" + uuid.uuid4().hex[:8]
                 js_list = [{"name": p["title"], "url": p["url"]} for p in playable]
+
+                # 建立 HTML 時不再直接使用 player_list[0] 或 [1]，改用安全索引
                 html = f'''
                 <div style="display:flex;flex-direction:column;align-items:center;">
-                  <div id="{player_id}_title" style="font-weight:600;margin-bottom:8px;">正在播放：{sel['title']}</div>
+                  <div id="{player_id}_title" style="font-weight:600;margin-bottom:8px;">正在播放：{playable[sel_index]["title"]}</div>
                   <video id="{player_id}" controls autoplay playsinline style="width:100%;max-width:960px;height:auto;background:black;"></video>
                   <div style="margin-top:8px;">
                     <button id="{player_id}_prev">◀ 上一則</button>
@@ -222,7 +229,7 @@ if st.button("開始解析並產生清單"):
                 <script>
                 (function(){{
                     const list = {js_list!r};
-                    let idx = {sel['index']};
+                    let idx = {sel_index};
                     const video = document.getElementById("{player_id}");
                     const title = document.getElementById("{player_id}_title");
                     const prevBtn = document.getElementById("{player_id}_prev");
@@ -239,7 +246,7 @@ if st.button("開始解析並產生清單"):
                             video.src = url;
                         }} else if (Hls.isSupported()) {{
                             if (window._hls_instance) {{
-                                try {{ window._hls_instance.destroy(); }} catch(e){{}}
+                                try {{ window._hls_instance.destroy(); }} catch(e){{}} 
                                 window._hls_instance = null;
                             }}
                             const hls = new Hls();
@@ -258,6 +265,7 @@ if st.button("開始解析並產生清單"):
                     }}
 
                     function gotoIndex(newIdx) {{
+                        if (list.length === 0) return;
                         if (newIdx < 0) newIdx = list.length - 1;
                         if (newIdx >= list.length) newIdx = 0;
                         idx = newIdx;
@@ -275,13 +283,14 @@ if st.button("開始解析並產生清單"):
                     }});
 
                     updateInfo();
-                    loadSrc(list[idx].url);
+                    if (list.length > 0) loadSrc(list[idx].url);
                 }})();
                 </script>
                 '''
                 st.components.v1.html(html, height=640)
-
-        if unavailable:
-            st.subheader("❌ 無法取得 m3u8 的項目")
-            for u in unavailable:
-                st.write(f"- {u.get('title') or u.get('url')} → {u.get('error', '找不到 HLS 格式')}")
+        else:
+            st.warning("目前沒有可播放的 m3u8 項目。請檢查輸入的網址或上傳 cookies（若影片需要登入）。")
+            if unavailable:
+                st.subheader("❌ 無法取得 m3u8 的項目")
+                for u in unavailable:
+                    st.write(f"- {u.get('title') or u.get('url')} → {u.get('error', '找不到 HLS 格式')}")
