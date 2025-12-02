@@ -7,32 +7,19 @@ import uuid
 import concurrent.futures
 import time
 import traceback
+import json
+from html import escape
 
-# Page config
-st.set_page_config(page_title="YouTube 點唱機（固定上方操作）", layout="wide")
-st.markdown("<h1 style='margin-bottom:6px;'>🎵 YouTube 點唱機</h1>", unsafe_allow_html=True)
-st.write("上方為固定操作視窗（播放 / 加入佇列 / 移除），下方為可滑動候選清單（每項只有「選擇」按鈕）。")
+# -------------------------------
+# Streamlit page config
+# -------------------------------
+st.set_page_config(page_title="YouTube 點唱機（HTML 嵌入）", layout="wide")
+st.markdown("<h1 style='margin-bottom:6px;'>🎵 YouTube 點唱機（HTML 嵌入）</h1>", unsafe_allow_html=True)
+st.write("上方為固定操作列（播放 / 加入佇列 / 移除），下方為可滑動候選清單；播放器使用 HLS（m3u8）。")
 
-# CSS: sticky top panel + scroll list
-st.markdown(
-    """
-    <style>
-    .container { display:flex; gap:18px; align-items:flex-start; }
-    .left { width:36%; background:#0f1724; color:#e6eef8; padding:12px; border-radius:10px; }
-    .right { flex:1; background:linear-gradient(180deg,#071021,#0b1b2b); color:#fff; padding:18px; border-radius:10px; }
-    .top-panel { position: -webkit-sticky; position: sticky; top: 12px; background: rgba(255,255,255,0.02); padding:12px; border-radius:8px; margin-bottom:12px; }
-    .scroll-area { max-height:520px; overflow:auto; padding-right:6px; }
-    .song-item { padding:10px; border-radius:6px; margin-bottom:8px; background:rgba(255,255,255,0.02); display:flex; align-items:center; justify-content:space-between; }
-    .song-meta { flex:1; padding-right:12px; color:#e6eef8; }
-    .queue-item { padding:6px 8px; border-radius:6px; background:rgba(255,255,255,0.02); margin-bottom:6px; color:#e6eef8; }
-    .op-btn { padding:8px 12px; border-radius:6px; background:#1f6feb; color:white; border:none; cursor:pointer; }
-    .op-btn:disabled { background:#555; cursor:not-allowed; }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
+# -------------------------------
 # Input area (collapsed)
+# -------------------------------
 with st.expander("輸入 YouTube 影片或播放清單網址（每行一個）", expanded=False):
     urls_input = st.text_area("網址（每行一個）", height=120)
     uploaded_cookies = st.file_uploader("（選擇性）上傳 cookies.txt（Netscape 格式）", type=["txt"])
@@ -41,7 +28,9 @@ with st.expander("輸入 YouTube 影片或播放清單網址（每行一個）",
     debug_mode = st.checkbox("顯示詳細錯誤（開發用）", value=False)
     parse_btn = st.button("開始解析並產生清單")
 
-# Helper functions
+# -------------------------------
+# yt-dlp helper functions
+# -------------------------------
 def fetch_info(url, cookiefile=None, timeout=30, extract_flat=False, quiet=True):
     opts = {
         "skip_download": True,
@@ -107,7 +96,9 @@ def export_m3u8_list(results):
     lines = [f"{r['title']} | {r['url']}" for r in results if r.get("url")]
     return "\n".join(lines)
 
+# -------------------------------
 # Parse button logic
+# -------------------------------
 if parse_btn:
     urls = [u.strip() for u in urls_input.splitlines() if u.strip()]
     if not urls:
@@ -192,224 +183,266 @@ if parse_btn:
         st.session_state["selected_index"] = 0 if playable else None
         st.success(f"解析完成：可播放 {len(playable)} 項，無法取得 {len(unavailable)} 項")
 
-# UI layout: left (sticky top panel + scroll list), right (player)
+# -------------------------------
+# Prepare data for HTML embed
+# -------------------------------
 playable = st.session_state.get("playable", [])
 unavailable = st.session_state.get("unavailable", [])
 queue = st.session_state.get("queue", [])
 selected_index = st.session_state.get("selected_index", None)
+selected_play = st.session_state.get("selected_m3u8", None)
 
-col_left, col_right = st.columns([3,7])
+# Convert playable to safe JSON for injection
+# Escape titles to avoid accidental HTML injection in attributes
+safe_playable = []
+for p in playable:
+    safe_playable.append({
+        "title": escape(p.get("title", "")[:300]),
+        "url": p.get("url")
+    })
+js_list = json.dumps(safe_playable)
 
-with col_left:
-    st.markdown("<div class='left'>", unsafe_allow_html=True)
-    # Top sticky panel
-    st.markdown("<div class='top-panel'>", unsafe_allow_html=True)
-    st.markdown("### 操作面板")
-    if selected_index is None or not playable:
-        st.markdown("<div style='color:#cfe8ff;'>尚未選擇項目</div>", unsafe_allow_html=True)
-    else:
-        cur = playable[selected_index]
-        st.markdown(f"<div style='color:#cfe8ff;'>選擇：{selected_index+1}. {cur.get('title')[:100]}</div>", unsafe_allow_html=True)
+# initial selected index for front-end
+init_selected = selected_index if selected_index is not None else 0
 
-    op_cols = st.columns([1,1,1])
-    with op_cols[0]:
-        if st.button("▶ 播放", key="op_play"):
-            if selected_index is not None and playable:
-                st.session_state["selected_m3u8"] = {"index": selected_index, "title": playable[selected_index]["title"], "url": playable[selected_index]["url"]}
-    with op_cols[1]:
-        if st.button("＋ 加入佇列", key="op_queue"):
-            if selected_index is not None and playable:
-                item = playable[selected_index]
-                if item not in queue:
-                    queue.append(item)
-                    st.session_state["queue"] = queue
-    with op_cols[2]:
-        if st.button("🗑 移除", key="op_remove"):
-            if selected_index is not None and playable:
-                item = playable[selected_index]
-                new_playable = [x for x in playable if x != item]
-                st.session_state["playable"] = new_playable
-                if new_playable:
-                    new_idx = min(selected_index, len(new_playable)-1)
-                    st.session_state["selected_index"] = new_idx
-                else:
-                    st.session_state["selected_index"] = None
-                if "selected_m3u8" in st.session_state and st.session_state["selected_m3u8"].get("url") == item.get("url"):
-                    st.session_state.pop("selected_m3u8", None)
-    st.markdown("</div>", unsafe_allow_html=True)
+# -------------------------------
+# HTML template (sticky top panel + scroll list + HLS player)
+# -------------------------------
+html_template = f"""
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  body {{ margin:0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial; color:#e6eef8; background:transparent; }}
+  .wrap {{ display:flex; gap:18px; padding:12px; box-sizing:border-box; }}
+  .left {{ width:36%; min-width:260px; background:#0f1724; padding:12px; border-radius:10px; box-sizing:border-box; }}
+  .right {{ flex:1; background:linear-gradient(180deg,#071021,#0b1b2b); padding:18px; border-radius:10px; box-sizing:border-box; color:#fff; }}
+  .top-panel {{ position:sticky; top:12px; background:rgba(255,255,255,0.02); padding:10px; border-radius:8px; margin-bottom:12px; }}
+  .scroll-area {{ max-height:520px; overflow:auto; padding-right:6px; }}
+  .song-item {{ padding:10px; border-radius:6px; margin-bottom:8px; background:rgba(255,255,255,0.02); display:flex; align-items:center; justify-content:space-between; }}
+  .song-meta {{ flex:1; padding-right:12px; color:#e6eef8; }}
+  .queue-item {{ padding:6px 8px; border-radius:6px; background:rgba(255,255,255,0.02); margin-bottom:6px; color:#e6eef8; }}
+  .btn {{ padding:8px 12px; border-radius:6px; background:#1f6feb; color:white; border:none; cursor:pointer; }}
+  .btn:disabled {{ background:#555; cursor:not-allowed; }}
+  .small-btn {{ padding:6px 8px; border-radius:6px; background:transparent; border:1px solid rgba(255,255,255,0.06); color:#cfe8ff; cursor:pointer; }}
+  .selected {{ outline:2px solid rgba(31,111,235,0.25); }}
+  video {{ background:black; border-radius:6px; }}
+  @media (max-width:900px) {{
+    .wrap {{ flex-direction:column; }}
+    .left {{ width:100%; }}
+    .right {{ width:100%; }}
+  }}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="left">
+    <div class="top-panel">
+      <div id="selectedTitle" style="font-weight:600; margin-bottom:8px;">尚未選擇項目</div>
+      <div style="display:flex; gap:8px;">
+        <button id="btnPlay" class="btn">▶ 播放</button>
+        <button id="btnQueue" class="btn">＋ 加入佇列</button>
+        <button id="btnRemove" class="btn">🗑 移除</button>
+      </div>
+    </div>
 
-    # Scrollable list below
-    st.markdown('<div class="scroll-area">', unsafe_allow_html=True)
-    st.markdown("### 候選清單（滑動視窗）")
-    if not playable:
-        st.info("候選清單為空，請先解析網址。")
-    else:
-        for i, p in enumerate(playable):
-            # highlight selected item visually
-            if selected_index == i:
-                st.markdown(f"<div class='song-item' style='outline:2px solid rgba(31,111,235,0.25);'>", unsafe_allow_html=True)
-            else:
-                st.markdown("<div class='song-item'>", unsafe_allow_html=True)
-            st.markdown(f"<div class='song-meta'>{i+1}. {p.get('title')[:140]}</div>", unsafe_allow_html=True)
-            if st.button("選擇", key=f"select_{i}"):
-                st.session_state["selected_index"] = i
-            st.markdown("</div>", unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+    <div style="margin-top:8px; font-weight:600; color:#cfe8ff;">候選清單（滑動視窗）</div>
+    <div id="scrollList" class="scroll-area" style="margin-top:8px;"></div>
 
-    st.markdown("---")
-    st.markdown("### ▶️ 播放佇列")
-    if not queue:
-        st.write("佇列為空，使用上方「＋ 加入佇列」把歌曲放進來。")
-    else:
-        for qi, q in enumerate(queue):
-            st.markdown(f"<div class='queue-item'>{qi+1}. {q.get('title')[:100]}</div>", unsafe_allow_html=True)
-        qcols = st.columns([1,1,1])
-        with qcols[0]:
-            if st.button("清空佇列", key="queue_clear"):
-                st.session_state["queue"] = []
-        with qcols[1]:
-            if st.button("播放佇列第一首", key="queue_play_first"):
-                if queue:
-                    first = queue.pop(0)
-                    if first in playable:
-                        st.session_state["selected_index"] = playable.index(first)
-                    st.session_state["selected_m3u8"] = {"index": st.session_state.get("selected_index", 0), "title": first["title"], "url": first["url"]}
-                    st.session_state["queue"] = queue
-        with qcols[2]:
-            if st.button("加入全部到佇列", key="queue_add_all"):
-                for p in playable:
-                    if p not in queue:
-                        queue.append(p)
-                st.session_state["queue"] = queue
+    <div style="margin-top:12px; font-weight:600; color:#cfe8ff;">播放佇列</div>
+    <div id="queueList" style="margin-top:8px;"></div>
+  </div>
 
-    st.markdown("</div>", unsafe_allow_html=True)
+  <div class="right">
+    <div id="playerTitle" style="font-size:18px; font-weight:600; margin-bottom:8px;">播放器</div>
+    <div id="cover" style="margin-bottom:12px;">
+      <img id="coverImg" src="https://placehold.co/640x360/0b1b2b/ffffff?text=YouTube+Cover" alt="cover" style="width:100%; max-width:640px; border-radius:6px;">
+    </div>
+    <div>
+      <video id="video" controls playsinline style="width:100%; max-width:960px; height:auto;"></video>
+    </div>
+    <div style="margin-top:12px; display:flex; gap:8px; align-items:center;">
+      <button id="prevBtn" class="small-btn">◀ 上一首</button>
+      <button id="nextBtn" class="small-btn">下一首 ▶</button>
+      <label style="margin-left:12px; color:#cfe8ff;">音量</label>
+      <input id="vol" type="range" min="0" max="100" value="80" style="margin-left:8px;">
+      <label style="margin-left:12px; color:#cfe8ff;"><input id="loop" type="checkbox"> 循環</label>
+      <label style="margin-left:8px; color:#cfe8ff;"><input id="shuffle" type="checkbox"> 隨機</label>
+    </div>
+  </div>
+</div>
 
-with col_right:
-    st.markdown("<div class='right'>", unsafe_allow_html=True)
-    selected_play = st.session_state.get("selected_m3u8")
-    if not selected_play:
-        st.markdown("<h3 style='color:#cfe8ff;'>尚未播放</h3>", unsafe_allow_html=True)
-        st.write("請在左側滑動清單選擇一首，然後按上方的「▶ 播放」。")
-    else:
-        sel_index = selected_play.get("index", 0)
-        if sel_index < 0 or sel_index >= len(playable):
-            sel_index = 0
-            if playable:
-                st.session_state["selected_m3u8"] = {"index": 0, "title": playable[0]["title"], "url": playable[0]["url"]}
-        if playable:
-            sel_item = playable[sel_index]
-            st.markdown(f"<h2 style='margin-bottom:6px;color:#fff;'>{sel_item.get('title')}</h2>", unsafe_allow_html=True)
-            st.image("https://placehold.co/640x360/0b1b2b/ffffff?text=YouTube+Cover", caption="", use_column_width=False, width=640, clamp=True)
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js"></script>
+<script>
+  // Injected list from Python
+  const list = {js_list};
+  let selectedIndex = {init_selected};
+  let queue = [];
+  const scrollList = document.getElementById('scrollList');
+  const queueList = document.getElementById('queueList');
+  const selectedTitle = document.getElementById('selectedTitle');
+  const playerTitle = document.getElementById('playerTitle');
+  const video = document.getElementById('video');
+  const vol = document.getElementById('vol');
+  const loopCheckbox = document.getElementById('loop');
+  const shuffleCheckbox = document.getElementById('shuffle');
 
-            control_cols = st.columns([1,1,1,2,2])
-            with control_cols[0]:
-                if st.button("◀ 上一首", key="ui_prev"):
-                    new_idx = (sel_index - 1) % len(playable) if playable else 0
-                    st.session_state["selected_m3u8"] = {"index": new_idx, "title": playable[new_idx]["title"], "url": playable[new_idx]["url"]}
-            with control_cols[1]:
-                if st.button("▶ 播放（重載）", key="ui_play"):
-                    st.session_state["selected_m3u8"] = {"index": sel_index, "title": sel_item["title"], "url": sel_item["url"]}
-            with control_cols[2]:
-                if st.button("下一首 ▶", key="ui_next"):
-                    new_idx = (sel_index + 1) % len(playable) if playable else 0
-                    st.session_state["selected_m3u8"] = {"index": new_idx, "title": playable[new_idx]["title"], "url": playable[new_idx]["url"]}
-            with control_cols[3]:
-                loop_mode = st.checkbox("循環播放", value=st.session_state.get("loop", False), key="ui_loop")
-                st.session_state["loop"] = loop_mode
-            with control_cols[4]:
-                shuffle_mode = st.checkbox("隨機播放", value=st.session_state.get("shuffle", False), key="ui_shuffle")
-                st.session_state["shuffle"] = shuffle_mode
+  function renderList() {
+    scrollList.innerHTML = '';
+    if (!list || list.length === 0) {
+      scrollList.innerHTML = '<div style="color:#cfe8ff;">候選清單為空，請先在左上輸入網址並解析。</div>';
+      selectedTitle.innerText = '尚未選擇項目';
+      playerTitle.innerText = '播放器';
+      video.src = '';
+      return;
+    }
+    list.forEach((item, i) => {
+      const div = document.createElement('div');
+      div.className = 'song-item' + (i === selectedIndex ? ' selected' : '');
+      div.innerHTML = `<div style="flex:1; padding-right:12px;">${i+1}. ${item.title}</div>
+                       <div><button class="small-btn select-btn" data-i="${i}">選擇</button></div>`;
+      scrollList.appendChild(div);
+    });
+    attachSelectHandlers();
+    updateSelectedUI();
+  }
 
-            vol = st.slider("音量", min_value=0, max_value=100, value=80, step=1, key="volume_slider")
+  function attachSelectHandlers() {
+    document.querySelectorAll('.select-btn').forEach(btn => {
+      btn.onclick = (e) => {
+        const i = parseInt(e.target.dataset.i);
+        selectedIndex = i;
+        renderList();
+        // scroll into view
+        e.target.closest('.song-item').scrollIntoView({behavior:'smooth', block:'center'});
+      };
+    });
+  }
 
-            dl_cols = st.columns([1,1,1])
-            with dl_cols[0]:
-                st.download_button("下載 m3u8 清單", export_m3u8_list(playable), file_name="m3u8_list.txt")
-            with dl_cols[1]:
-                if st.button("從佇列播放下一首", key="ui_queue_next"):
-                    if queue:
-                        nxt = queue.pop(0)
-                        if nxt in playable:
-                            st.session_state["selected_index"] = playable.index(nxt)
-                        st.session_state["selected_m3u8"] = {"index": st.session_state.get("selected_index", 0), "title": nxt["title"], "url": nxt["url"]}
-                        st.session_state["queue"] = queue
-            with dl_cols[2]:
-                if st.button("移除目前歌曲（播放中）", key="ui_remove_current"):
-                    if playable:
-                        new_playable = [x for x in playable if x != sel_item]
-                        st.session_state["playable"] = new_playable
-                        st.session_state.pop("selected_m3u8", None)
-                        if new_playable:
-                            st.session_state["selected_m3u8"] = {"index": 0, "title": new_playable[0]["title"], "url": new_playable[0]["url"]}
+  function updateSelectedUI() {
+    if (!list || list.length === 0) return;
+    const cur = list[selectedIndex];
+    selectedTitle.innerText = `選擇：${selectedIndex+1}. ${cur.title}`;
+    playerTitle.innerText = cur.title;
+    loadHls(cur.url);
+  }
 
-            # Frontend HLS player
-            player_id = "player_" + uuid.uuid4().hex[:8]
-            js_list = [{"name": p["title"], "url": p["url"]} for p in playable]
+  function loadHls(url) {
+    if (!url) return;
+    if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = url;
+    } else if (Hls.isSupported()) {
+      if (window._hls_instance) {
+        try { window._hls_instance.destroy(); } catch(e) {}
+        window._hls_instance = null;
+      }
+      const hls = new Hls();
+      window._hls_instance = hls;
+      hls.loadSource(url);
+      hls.attachMedia(video);
+    } else {
+      video.src = url;
+    }
+  }
 
-            html = f'''
-            <div style="margin-top:12px;">
-              <video id="{player_id}" controls playsinline style="width:100%;max-width:960px;height:auto;background:black;"></video>
-            </div>
+  function renderQueue() {
+    queueList.innerHTML = '';
+    if (!queue.length) {
+      queueList.innerHTML = '<div style="color:#cfe8ff;">佇列為空</div>';
+      return;
+    }
+    queue.forEach((q, idx) => {
+      const d = document.createElement('div');
+      d.className = 'queue-item';
+      d.innerText = `${idx+1}. ${q.title}`;
+      queueList.appendChild(d);
+    });
+  }
 
-            <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js"></script>
-            <script>
-            (function(){{
-                const list = {js_list!r};
-                let idx = {sel_index};
-                const video = document.getElementById("{player_id}");
-                const volume = {st.session_state.get("volume_slider", 80)} / 100.0;
-                video.volume = volume;
+  // Buttons
+  document.getElementById('btnPlay').onclick = () => {
+    if (!list.length) return;
+    try { video.play(); } catch(e) {}
+  };
+  document.getElementById('btnQueue').onclick = () => {
+    if (!list.length) return;
+    const item = list[selectedIndex];
+    if (!queue.find(q => q.url === item.url)) {
+      queue.push(item);
+      renderQueue();
+    }
+  };
+  document.getElementById('btnRemove').onclick = () => {
+    if (!list.length) return;
+    list.splice(selectedIndex, 1);
+    if (selectedIndex >= list.length) selectedIndex = Math.max(0, list.length - 1);
+    renderList();
+    renderQueue();
+  };
 
-                function attachHls(url) {{
-                    if (!url) return;
-                    if (video.canPlayType('application/vnd.apple.mpegurl')) {{
-                        video.src = url;
-                    }} else if (Hls.isSupported()) {{
-                        if (window._hls_instance) {{
-                            try {{ window._hls_instance.destroy(); }} catch(e){{}} 
-                            window._hls_instance = null;
-                        }}
-                        const hls = new Hls();
-                        window._hls_instance = hls;
-                        hls.loadSource(url);
-                        hls.attachMedia(video);
-                    }} else {{
-                        video.src = url;
-                    }}
-                }}
+  document.getElementById('prevBtn').onclick = () => {
+    if (!list.length) return;
+    if (shuffleCheckbox.checked) {
+      selectedIndex = Math.floor(Math.random() * list.length);
+    } else {
+      selectedIndex = (selectedIndex - 1 + list.length) % list.length;
+    }
+    renderList();
+  };
+  document.getElementById('nextBtn').onclick = () => {
+    if (!list.length) return;
+    if (shuffleCheckbox.checked) {
+      selectedIndex = Math.floor(Math.random() * list.length);
+    } else {
+      selectedIndex = (selectedIndex + 1) % list.length;
+    }
+    renderList();
+  };
 
-                function loadAndPlay(i) {{
-                    if (!list || list.length === 0) return;
-                    idx = i % list.length;
-                    attachHls(list[idx].url);
-                    setTimeout(()=>{{ try{{ video.play(); }}catch(e){{}} }}, 300);
-                }}
+  vol.oninput = () => {
+    video.volume = vol.value / 100.0;
+  };
 
-                loadAndPlay(idx);
+  video.addEventListener('ended', () => {
+    if (!list.length) return;
+    if (shuffleCheckbox.checked) {
+      selectedIndex = Math.floor(Math.random() * list.length);
+    } else {
+      selectedIndex = (selectedIndex + 1) % list.length;
+    }
+    if (!loopCheckbox.checked && selectedIndex === 0 && !shuffleCheckbox.checked) {
+      // reached end and not looping
+      return;
+    }
+    renderList();
+  });
 
-                video.addEventListener('ended', function() {{
-                    const loop = {str(st.session_state.get("loop", False)).lower()};
-                    const shuffle = {str(st.session_state.get("shuffle", False)).lower()};
-                    if (shuffle) {{
-                        idx = Math.floor(Math.random() * list.length);
-                    }} else {{
-                        idx = (idx + 1) % list.length;
-                    }}
-                    if (!loop && idx === 0 && !shuffle) {{
-                        return;
-                    }}
-                    loadAndPlay(idx);
-                }});
-            }})();
-            </script>
-            '''
-            st.components.v1.html(html, height=420)
+  // initial render
+  renderList();
+  renderQueue();
+</script>
+</body>
+</html>
+"""
 
-    st.markdown("</div>", unsafe_allow_html=True)
-
-# Show unavailable items
-if unavailable:
-    st.markdown("---")
-    st.subheader("❌ 無法取得 m3u8 的項目")
-    for u in unavailable:
-        st.write(f"- {u.get('title') or u.get('url')} → {u.get('error', '找不到 HLS 格式')}")
+# -------------------------------
+# Render HTML component
+# -------------------------------
+# If no playable items, show a helpful message and still render the HTML with empty list
+st.components.v1.html(html_template, height=720, scrolling=True)
+# Also show a small Streamlit-side control area for exporting or clearing session if desired
+st.markdown("---")
+col_a, col_b, col_c = st.columns([1,1,1])
+with col_a:
+    if st.button("下載 m3u8 清單"):
+        st.download_button("下載 m3u8 清單", export_m3u8_list(playable), file_name="m3u8_list.txt")
+with col_b:
+    if st.button("清空所有資料"):
+        for k in ["playable", "unavailable", "queue", "selected_index", "selected_m3u8"]:
+            if k in st.session_state:
+                st.session_state.pop(k, None)
+        st.experimental_rerun()
+with col_c:
+    st.write("提示：滑動清單點「選擇」，再用上方操作列控制播放或加入佇列。")
