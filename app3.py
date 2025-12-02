@@ -16,7 +16,7 @@ from html import escape
 # -------------------------------
 st.set_page_config(page_title="YouTube 點唱機（單欄）", layout="wide")
 st.markdown("<h1 style='margin-bottom:6px;'>🎵 YouTube 點唱機（單欄）</h1>", unsafe_allow_html=True)
-st.write("上方為固定操作列（播放 / 加入佇列 / 移除 / 取消靜音），下方為垂直候選清單；播放器使用 HLS（m3u8）。")
+st.write("上方為固定操作列（播放 / 加入佇列 / 移除），下方為垂直候選清單；播放器使用 HLS（m3u8）。")
 
 # -------------------------------
 # Input area (collapsed)
@@ -208,7 +208,6 @@ safe_playable = []
 for p in playable:
     title = p.get("title", "")[:300]
     url = p.get("url")
-    # try to get video id from webpage_url or url
     vid = None
     if p.get("webpage_url"):
         vid = youtube_id_from_url(p.get("webpage_url"))
@@ -229,6 +228,7 @@ init_selected = selected_index if selected_index is not None else 0
 
 # -------------------------------
 # HTML template (single-column: top sticky panel, vertical list, player below)
+# - Unmute button removed
 # -------------------------------
 html_template = '''
 <!doctype html>
@@ -242,7 +242,6 @@ html_template = '''
   .top-panel { position:sticky; top:12px; background:#0b2a4a; padding:12px; border-radius:8px; margin-bottom:12px; color:#ffffff; z-index:10; }
   .top-row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
   .btn { padding:8px 12px; border-radius:6px; background:#1f6feb; color:white; border:none; cursor:pointer; }
-  .btn.green { background:#2ecc71; }
   .mute-note { margin-left:12px; color:#ffd; font-size:13px; }
   .player-area { margin-top:12px; background:linear-gradient(180deg,#071021,#0b1b2b); padding:12px; border-radius:8px; }
   video { width:100%; max-width:960px; height:auto; background:black; border-radius:6px; display:block; margin-bottom:8px; }
@@ -269,8 +268,7 @@ html_template = '''
       <button id="btnPlay" class="btn">▶ 播放</button>
       <button id="btnQueue" class="btn">＋ 加入佇列</button>
       <button id="btnRemove" class="btn">🗑 移除</button>
-      <button id="btnUnmute" class="btn green">取消靜音</button>
-      <div id="muteNote" class="mute-note">預設為有聲播放；若瀏覽器阻擋自動播放，請按播放或取消靜音</div>
+      <div id="muteNote" class="mute-note">預設為有聲播放；若瀏覽器阻擋自動播放，請按播放</div>
     </div>
   </div>
 
@@ -305,7 +303,6 @@ html_template = '''
   const vol = document.getElementById('vol');
   const loopCheckbox = document.getElementById('loop');
   const shuffleCheckbox = document.getElementById('shuffle');
-  const btnUnmute = document.getElementById('btnUnmute');
   const muteNote = document.getElementById('muteNote');
 
   // autoplay default: not muted
@@ -380,11 +377,6 @@ html_template = '''
     }
   }
 
-  function renderQueue() {
-    // queue display is integrated into list area top if needed; keep simple here
-    // (we already show queue items in list if desired)
-  }
-
   // Play button: user interaction -> unmute and play
   document.getElementById('btnPlay').onclick = () => {
     if (!list || list.length === 0) return;
@@ -399,7 +391,6 @@ html_template = '''
     if (!queue.find(q => q.url === item.url)) {
       queue.push(item);
     }
-    // optional: visual feedback
     muteNote.innerText = `已加入佇列（共 ${queue.length} 首）`;
     setTimeout(()=>{ muteNote.innerText = ''; }, 1600);
   };
@@ -408,16 +399,6 @@ html_template = '''
     list.splice(selectedIndex, 1);
     if (selectedIndex >= list.length) selectedIndex = Math.max(0, list.length - 1);
     renderList();
-  };
-
-  // Unmute button: user interaction
-  btnUnmute.onclick = () => {
-    try {
-      video.muted = false;
-      autoplayMuted = false;
-      muteNote.innerText = '已取消靜音';
-      setTimeout(()=>{ muteNote.innerText = ''; }, 2000);
-    } catch(e) {}
   };
 
   // Prev / Next follow stored list order (manual navigation ignores queue)
@@ -506,4 +487,4 @@ with col_b:
         except Exception:
             st.stop()
 with col_c:
-    st.write("提示：清單為垂直排列；上一/下一鍵依清單順序切換；若自動播放被阻擋，請按播放或取消靜音。")
+    st.write("提示：清單為垂直排列；上一/下一鍵依清單順序切換；若自動播放被阻擋，請按播放。")
