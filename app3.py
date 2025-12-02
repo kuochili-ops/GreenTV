@@ -58,7 +58,7 @@ if start_button and urls_input.strip():
             info = fetch_info(url, extract_flat=extract_flat)
 
             if "entries" in info:  # Playlist 或 Radio
-                for entry in info["entries"]:
+                for entry in info["entries"][:30]:  # 限制最多 30 段
                     try:
                         entry_url = entry.get("url") or f"https://www.youtube.com/watch?v={entry.get('id')}"
                         sub_info = fetch_info(entry_url)
