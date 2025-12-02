@@ -13,6 +13,7 @@ st.write("頁面載入後自動從三立新聞開始播放；使用鍵盤左右�
 st.warning("Cookies 含登入憑證，請僅在私有或受信任環境使用；上傳後程式會暫存並嘗試刪除。")
 
 # 四台頻道（原始順序，第一台為三立）
+# 頻道敘述規格    {"name": "懷舊歌曲", "url": "https://"},
 CHANNELS = [
     {"name": "三立新聞", "url": "https://www.youtube.com/live/QsGswQvRmtU?si=0tG0FZcoxq5nftxS"},
     {"name": "民視新聞", "url": "https://www.youtube.com/live/ylYJSBUgaMA?si=yBqbwafsMknTq_gT"},
