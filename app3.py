@@ -13,8 +13,8 @@ from html import escape
 # -------------------------------
 # Streamlit page config
 # -------------------------------
-st.set_page_config(page_title="YouTube 點唱機（自動依序播放 - 互動解除靜音）", layout="wide")
-st.markdown("<h1 style='margin-bottom:6px;'>🎵 YouTube 點唱機（自動依序播放）</h1>", unsafe_allow_html=True)
+st.set_page_config(page_title="YouTube 點唱機（非靜音預設）", layout="wide")
+st.markdown("<h1 style='margin-bottom:6px;'>🎵 YouTube 點唱機（非靜音預設）</h1>", unsafe_allow_html=True)
 st.write("上方為固定操作列（播放 / 加入佇列 / 移除 / 取消靜音），下方為可滑動候選清單；播放器使用 HLS（m3u8）。")
 
 # -------------------------------
@@ -211,7 +211,7 @@ init_selected = selected_index if selected_index is not None else 0
 
 # -------------------------------
 # HTML template (ordinary triple-quoted string, placeholders {JS_LIST} and {INIT_SELECTED})
-# - autoplay-next behavior implemented; autoplay attempts muted but user interaction (Play or Unmute) will unmute
+# - autoplay default non-muted
 # -------------------------------
 html_template = '''
 <!doctype html>
@@ -253,7 +253,7 @@ html_template = '''
         <button id="btnQueue" class="btn">＋ 加入佇列</button>
         <button id="btnRemove" class="btn">🗑 移除</button>
         <button id="btnUnmute" class="btn" style="background:#2ecc71; margin-left:8px;">取消靜音</button>
-        <div id="muteNote" class="mute-note">自動播放時會以靜音嘗試播放；按播放或取消靜音可解除靜音</div>
+        <div id="muteNote" class="mute-note">預設為有聲播放；若瀏覽器阻擋自動播放，請按播放或取消靜音</div>
       </div>
     </div>
 
@@ -300,8 +300,8 @@ html_template = '''
   const btnUnmute = document.getElementById('btnUnmute');
   const muteNote = document.getElementById('muteNote');
 
-  // Attempt autoplay with muted to satisfy browser policies.
-  let autoplayMuted = true;
+  // autoplay default: not muted
+  let autoplayMuted = false;
 
   function renderList() {
     scrollList.innerHTML = '';
@@ -344,10 +344,8 @@ html_template = '''
 
   function loadHls(url, autoplay=false) {
     if (!url) return;
-    // set muted state for autoplay attempts
-    if (autoplay && autoplayMuted) {
-      try { video.muted = true; } catch(e) {}
-    }
+    // Do not force muted; respect autoplayMuted flag (default false)
+    try { video.muted = !!autoplayMuted; } catch(e) {}
     if (video.canPlayType('application/vnd.apple.mpegurl')) {
       video.src = url;
       if (autoplay) try { video.play().catch(()=>{}); } catch(e){}
@@ -453,7 +451,7 @@ html_template = '''
       if (idx >= 0) {
         selectedIndex = idx;
         renderList();
-        // autoplay attempt (muted if needed)
+        // autoplay attempt (non-muted by default)
         loadHls(list[selectedIndex].url, true);
       } else {
         // play the URL directly (temporary)
@@ -477,7 +475,7 @@ html_template = '''
     }
 
     renderList();
-    // autoplay attempt (muted if needed)
+    // autoplay attempt (non-muted by default)
     loadHls(list[selectedIndex].url, true);
   });
 
@@ -517,4 +515,4 @@ with col_b:
         except Exception:
             st.stop()
 with col_c:
-    st.write("提示：按「▶ 播放」或「取消靜音」視為使用者互動，會解除靜音並播放有聲。")
+    st.write("提示：若瀏覽器阻擋自動播放有聲，請按「▶ 播放」或「取消靜音」。")
