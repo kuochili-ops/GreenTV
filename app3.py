@@ -190,6 +190,9 @@ if playlist:
 
     st.components.v1.html(html, height=800)
 
+
 elif start_button and urls_input.strip():
     st.warning("所有影片都失效或無法解析，請檢查連結或換另一個播放清單。")
     if failed_list:
+        st.table(failed_list)
+
