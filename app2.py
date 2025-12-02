@@ -7,19 +7,18 @@ import os
 from urllib.parse import urlparse
 import requests
 
-st.set_page_config(page_title="YouTube 4 台電視（簡潔版）", layout="wide")
-st.title("YouTube 4 台電視（自動播放，左右鍵切台）")
-st.write("頁面載入後自動從三立新聞開始播放；使用鍵盤左右鍵或按鈕切換頻道。若直播需要登入驗證，請上傳 cookies.txt（Netscape 格式）。")
-st.warning("Cookies 含登入憑證，請僅在私有或受信任環境使用；上傳後程式會暫存並嘗試刪除。")
+st.set_page_config(page_title="不綠了電視", layout="wide")
+st.title("不綠了電視（自動播放，左右鍵切台）")
+st.write("頁面載入後自動從中天新聞開始播放；使用鍵盤左右鍵或按鈕切換頻道。若直播需要登入驗證，請上傳 cookies.txt（Netscape 格式）。")
 
-# 四台頻道（原始順序，第一台為三立）
+# 四台頻道（原始順序，第一台為中天）
 # 頻道敘述規格    {"name": "懷舊歌曲", "url": "https://"},
 CHANNELS = [
-    {"name": "三立新聞", "url": "https://www.youtube.com/live/QsGswQvRmtU?si=0tG0FZcoxq5nftxS"},
-    {"name": "民視新聞", "url": "https://www.youtube.com/live/ylYJSBUgaMA?si=yBqbwafsMknTq_gT"},
-    {"name": "鏡新聞", "url": "https://www.youtube.com/live/5n0y6b0Q25o?si=ZufSUna9wrqjZuZx"},
+    {"name": "中天新聞", "url": "https://www.youtube.com/live/vr3XyVCR4T0?si=0ck6fqJ0ZVBzWNX1"},
+    {"name": "TVBS", "url": "https://www.youtube.com/live/m_dhMSvUCIc?si=S0LgAF1lON9q7ORZ"},
+    {"name": "東森財經", "url": "https://www.youtube.com/live/1I2iq41Akmo?si=CzJAtvKVeUGhvCHo"},
     {"name": "非凡新聞", "url": "https://www.youtube.com/live/wAUx3pywTt8?si=9RB3z_JhUsQyGwb-"},
-    {"name": "懷舊歌曲", "url": "https://youtu.be/BDYWDr8XZjo?si=4EYzEa3jnV5JOEOj"},
+    {"name": "寰宇新聞", "url": "https://www.youtube.com/live/6IquAgfvYmc?si=FdqxZ7-48v64H7ZZ"},
 ]
 
 ALLOWED_HOSTS = ("youtube.com", "www.youtube.com", "youtu.be")
