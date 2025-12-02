@@ -76,6 +76,7 @@ if start_button and urls_input.strip():
             failed_list.append({"title": url, "reason": str(e)})
 
 # 顯示結果
+
 if playlist:
     st.success(f"成功解析 {len(playlist)} 個影片")
     if failed_list:
@@ -97,7 +98,7 @@ if playlist:
     html += "</ul></div></div>"
 
     html += """
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js"></script>
+    https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js</script>
     <script>
     (function(){
         const list = """ + str(playlist).replace("'", '"') + """;
@@ -153,3 +154,4 @@ if playlist:
     st.components.v1.html(html, height=800)
 
 elif start_button:
+    st.error("沒有成功解析的影片，請檢查連結是否有效或影片是否可播放。")
