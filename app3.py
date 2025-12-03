@@ -73,7 +73,11 @@ js_list = json.dumps(safe_playable)
 init_selected = selected_index if selected_index is not None else 0
 
 html_template = '''
-<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 body {margin:0;font-family:sans-serif;color:#e6eef8;background:#071021;}
 .container {max-width:900px;margin:12px auto;padding:12px;}
@@ -89,7 +93,9 @@ body {margin:0;font-family:sans-serif;color:#e6eef8;background:#071021;}
 .song-meta {flex:1;}
 .small-btn {padding:4px 6px;border-radius:4px;background:transparent;border:1px solid rgba(255,255,255,0.2);color:#cfe8ff;cursor:pointer;}
 .selected {background:#1f6feb;color:#fff;}
-</style></head><body>
+</style>
+</head>
+<body>
 <div class="container">
   <div class="top-panel">
     <div id="selectedTitle" style="font-weight:600;">尚未選擇項目</div>
@@ -122,3 +128,54 @@ function renderList(){
     listArea.appendChild(div);
   });
   attachSelectHandlers();
+  updateSelectedUI(false);
+}
+
+function attachSelectHandlers(){
+  document.querySelectorAll('.select-btn').forEach(btn=>{
+    btn.onclick=(e)=>{
+      const i=parseInt(e.target.dataset.i);
+      selectedIndex=i;
+      renderList();
+      e.target.closest('.song-item').scrollIntoView({behavior:'smooth',block:'center'});
+    };
+  });
+}
+
+function updateSelectedUI(autoplay=true){
+  if(!list||list.length===0)return;
+  const cur=list[selectedIndex];
+  selectedTitle.innerText=`選擇：${selectedIndex+1}. ${cur.title}`;
+  coverImg.src=cur.thumb||'https://placehold.co/320x180/0b1b2b/ffffff?text=Cover';
+  loadHls(cur.url,autoplay);
+}
+
+function loadHls(url,autoplay=false){
+  if(!url)return;
+  video.muted=false;
+  if(video.canPlayType('application/vnd.apple.mpegurl')){
+    video.src=url;if(autoplay)video.play().catch(()=>{});
+  }else if(Hls.isSupported()){
+    if(window._hls_instance){try{window._hls_instance.destroy();}catch(e){}window._hls_instance=null;}
+    const hls=new Hls();window._hls_instance=hls;
+    hls.loadSource(url);hls.attachMedia(video);
+    hls.on(Hls.Events.MANIFEST_PARSED,function(){if(autoplay)video.play().catch(()=>{});});
+  }else{video.src=url;if(autoplay)video.play().catch(()=>{});}
+}
+
+document.getElementById('btnPlay').onclick=()=>{if(!list.length)return;video.muted=false;video.play();};
+document.getElementById('btnQueue').onclick=()=>{if(!list.length)return;const item=list[selectedIndex];if(!queue.find(q=>q.url===item.url))queue.push(item);};
+document.getElementById('btnRemove').onclick=()=>{if(!list.length)return;list.splice(selectedIndex,1);if(selectedIndex>=list.length)selectedIndex=Math.max(0,list.length-1);renderList();};
+
+video.addEventListener('ended',()=>{
+  if(queue.length>0){const next=queue.shift();const idx=list.findIndex(x=>x.url===next.url);
+    if(idx>=0){selectedIndex=idx;renderList();loadHls(list[selectedIndex].url,true);}else{loadHls(next.url,true);}return;}
+  if(!list.length)return;selectedIndex=(selectedIndex+1)%list.length;
+  if(selectedIndex===0)return;renderList();loadHls(list[selectedIndex].url,true);
+});
+
+renderList();
+</script>
+</body>
+</html>
+'''
