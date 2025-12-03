@@ -6,7 +6,6 @@ from html import escape
 
 st.set_page_config(page_title="YouTube 點唱機（單欄）", layout="wide")
 st.markdown("<h1 style='margin-bottom:6px;'>🎵 YouTube 點唱機（單欄）</h1>", unsafe_allow_html=True)
-st.write("選擇面板：播放 / 加入 / 移除 三鈕橫排，封面與播放器也在面板裡；下方垂直候選清單。")
 
 with st.expander("輸入 YouTube 影片或播放清單網址（每行一個）", expanded=False):
     urls_input = st.text_area("網址（每行一個）", height=120)
@@ -70,8 +69,7 @@ for p in playable:
     thumb = f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg" if vid else "https://placehold.co/640x360/0b1b2b/ffffff?text=No+Cover"
     safe_playable.append({"title": escape(p.get("title","")), "url": p.get("url"), "thumb": thumb})
 js_list = json.dumps(safe_playable)
-init_selected = selected_index if selected_index is not None else 0
-
+init_selected = selected_index if selected_index is not 
 html_template = '''
 <!doctype html>
 <html>
@@ -179,3 +177,7 @@ renderList();
 </body>
 </html>
 '''
+
+
+
+
