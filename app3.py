@@ -12,9 +12,14 @@ if "expander_open" not in st.session_state:
     st.session_state.expander_open = True
 
 with st.expander("輸入 YouTube 影片或播放清單網址（每行一個）", expanded=st.session_state.expander_open):
-    urls_input = st.text_area("網址（每行一個）", height=120)
+    urls_input = st.text_area(
+        "網址（每行一個）",
+        height=120,
+        value="https://youtube.com/playlist?list=PL1U2BLQmiBseXoKEPVFw3ygJeHqIaN783&si=DvlFfdbpb_ax_iGn"
+    )
     uploaded_cookies = st.file_uploader("（選擇性）上傳 cookies.txt", type=["txt"])
     parse_btn = st.button("開始解析並產生清單")
+
 
 def fetch_info(url, cookiefile=None, timeout=30, extract_flat=False):
     opts = {"skip_download": True, "quiet": True, "no_warnings": True, "socket_timeout": timeout}
