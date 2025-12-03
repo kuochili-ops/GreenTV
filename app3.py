@@ -86,7 +86,7 @@ for p in playable:
     thumb = f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg" if vid else "https://placehold.co/640x360/0b1b2b/ffffff?text=No+Cover"
     safe_playable.append({"title": escape(p.get("title","")), "url": p.get("url"), "thumb": thumb})
 js_list = json.dumps(safe_playable)
-init_selected = selected_index if selected_index is not None else 
+init_selected = selected_index if selected_index is not None else 0
 html_template = '''
 <!doctype html>
 <html>
