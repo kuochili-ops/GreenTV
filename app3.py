@@ -110,9 +110,15 @@ body {margin:0;font-family:sans-serif;color:#e6eef8;background:#071021;}
 <script>
 const list={JS_LIST};let selectedIndex={INIT_SELECTED};let queue=[];
 const listArea=document.getElementById('listArea'),selectedTitle=document.getElementById('selectedTitle'),
-playerTitle=document.getElementById('playerTitle'),coverImg=document.getElementById('coverImg'),video=document.getElementById('video');
+coverImg=document.getElementById('coverImg'),video=document.getElementById('video');
 
-function renderList(){listArea.innerHTML='';if(!list||list.length===0){listArea.innerHTML='<div>候選清單為空</div>';return;}
-list.forEach((item,i)=>{const div=document.createElement('div');div.className='song-item'+(i===selectedIndex?' selected':'');
-div.innerHTML=`<img class="song-thumb" src="${item.thumb}"><div class="song-meta">${i+1}. ${item.title}</div><button class="small-btn select-btn" data-i="${i}">選擇</button>`;
-listArea.appendChild(div);});attachSelectHandlers();update
+function renderList(){
+  listArea.innerHTML='';
+  if(!list||list.length===0){listArea.innerHTML='<div>候選清單為空</div>';return;}
+  list.forEach((item,i)=>{
+    const div=document.createElement('div');
+    div.className='song-item'+(i===selectedIndex?' selected':'');
+    div.innerHTML=`<img class="song-thumb" src="${item.thumb}"><div class="song-meta">${i+1}. ${item.title}</div><button class="small-btn select-btn" data-i="${i}">選擇</button>`;
+    listArea.appendChild(div);
+  });
+  attachSelectHandlers();
