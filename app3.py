@@ -191,3 +191,5 @@ renderList();
 </body>
 </html>
 '''
+html_template = html_template.replace("{JS_LIST}", js_list).replace("{INIT_SELECTED}", str(init_selected))
+st.components.v1.html(html_template, height=900, scrolling=True)
