@@ -99,7 +99,7 @@ body {margin:0;font-family:sans-serif;color:#e6eef8;background:#071021;}
 .player-inline {margin-top:12px;}
 .cover-small {width:50%;max-width:320px;border-radius:6px;}
 .video-inline {width:100%;max-width:480px;margin-top:8px;border-radius:6px;background:black;}
-.list-area {margin-top:12px;max-height:520px;overflow:auto;}
+.list-area {margin-top:12px;max-height:300px;overflow:auto;}
 .song-item {display:flex;gap:8px;align-items:center;padding:8px;border-radius:6px;margin-bottom:6px;background:rgba(255,255,255,0.05);}
 .song-thumb {width:60px;height:34px;object-fit:cover;border-radius:4px;}
 .song-meta {flex:1;}
@@ -123,12 +123,14 @@ body {margin:0;font-family:sans-serif;color:#e6eef8;background:#071021;}
   </div>
   <div style="margin-top:12px;font-weight:600;color:#cfe8ff;">候選清單</div>
   <div id="listArea" class="list-area"></div>
+  <div style="margin-top:12px;font-weight:600;color:#cfe8ff;">播放佇列</div>
+  <div id="queueArea" class="list-area"></div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js"></script>
 <script>
 const list={JS_LIST};let selectedIndex={INIT_SELECTED};let queue=[];
-const listArea=document.getElementById('listArea'),selectedTitle=document.getElementById('selectedTitle'),
-coverImg=document.getElementById('coverImg'),video=document.getElementById('video');
+const listArea=document.getElementById('listArea'),queueArea=document.getElementById('queueArea'),
+selectedTitle=document.getElementById('selectedTitle'),coverImg=document.getElementById('coverImg'),video=document.getElementById('video');
 
 function renderList(){
   listArea.innerHTML='';
@@ -141,6 +143,17 @@ function renderList(){
   });
   attachSelectHandlers();
   updateSelectedUI(false);
+}
+
+function renderQueue(){
+  queueArea.innerHTML='';
+  if(queue.length===0){queueArea.innerHTML='<div>佇列為空</div>';return;}
+  queue.forEach((item,i)=>{
+    const div=document.createElement('div');
+    div.className='song-item';
+    div.innerHTML=`<img class="song-thumb" src="${item.thumb}"><div class="song-meta">Q${i+1}. ${item.title}</div>`;
+    queueArea.appendChild(div);
+  });
 }
 
 function attachSelectHandlers(){
@@ -176,20 +189,38 @@ function loadHls(url,autoplay=false){
 }
 
 document.getElementById('btnPlay').onclick=()=>{if(!list.length)return;video.muted=false;video.play();};
-document.getElementById('btnQueue').onclick=()=>{if(!list.length)return;const item=list[selectedIndex];if(!queue.find(q=>q.url===item.url))queue.push(item);};
-document.getElementById('btnRemove').onclick=()=>{if(!list.length)return;list.splice(selectedIndex,1);if(selectedIndex>=list.length)selectedIndex=Math.max(0,list.length-1);renderList();};
+document.getElementById('btnQueue').onclick=()=>{
+  if(!list.length)return;
+  const item=list[selectedIndex];
+  if(!queue.find(q=>q.url===item.url))queue.push(item);
+  renderQueue();
+};
+document.getElementById('btnRemove').onclick=()=>{
+  if(!list.length)return;
+  list.splice(selectedIndex,1);
+  if(selectedIndex>=list.length)selectedIndex=Math.max(0,list.length-1);
+  renderList();
+  renderQueue();
+};
 
 video.addEventListener('ended',()=>{
-  if(queue.length>0){const next=queue.shift();const idx=list.findIndex(x=>x.url===next.url);
-    if(idx>=0){selectedIndex=idx;renderList();loadHls(list[selectedIndex].url,true);}else{loadHls(next.url,true);}return;}
-  if(!list.length)return;selectedIndex=(selectedIndex+1)%list.length;
-  if(selectedIndex===0)return;renderList();loadHls(list[selectedIndex].url,true);
+  if(queue.length>0){
+    const next=queue.shift();
+    const idx=list.findIndex(x=>x.url===next.url);
+    if(idx>=0){selectedIndex=idx;renderList();loadHls(list[selectedIndex].url,true);}else{loadHls(next.url,true);}
+    renderQueue();
+    return;
+  }
+  if(!list.length)return;
+  selectedIndex=(selectedIndex+1)%list.length;
+  if(selectedIndex===0)return;
+  renderList();
+  loadHls(list[selectedIndex].url,true);
 });
 
 renderList();
+renderQueue();
 </script>
 </body>
 </html>
 '''
-html_template = html_template.replace("{JS_LIST}", js_list).replace("{INIT_SELECTED}", str(init_selected))
-st.components.v1.html(html_template, height=900, scrolling=True)
