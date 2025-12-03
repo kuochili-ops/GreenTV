@@ -1,7 +1,7 @@
 # app.py
 import streamlit as st
 from yt_dlp import YoutubeDL
-import tempfile, os, concurrent.futures, time, traceback, json, re
+import tempfile, concurrent.futures, json, re
 from html import escape
 
 st.set_page_config(page_title="YouTube 點唱機（單欄）", layout="wide")
@@ -12,13 +12,12 @@ with st.expander("輸入 YouTube 影片或播放清單網址（每行一個）",
     uploaded_cookies = st.file_uploader("（選擇性）上傳 cookies.txt", type=["txt"])
     parse_btn = st.button("開始解析並產生清單")
 
-_default_max_workers, _default_batch_size, _debug_mode = 2, 6, False
-
-def fetch_info(url, cookiefile=None, timeout=30, extract_flat=False, quiet=True):
-    opts = {"skip_download": True, "quiet": quiet, "no_warnings": quiet, "socket_timeout": timeout}
+def fetch_info(url, cookiefile=None, timeout=30, extract_flat=False):
+    opts = {"skip_download": True, "quiet": True, "no_warnings": True, "socket_timeout": timeout}
     if extract_flat: opts["extract_flat"] = True
     if cookiefile: opts["cookiefile"] = cookiefile
-    with YoutubeDL(opts) as ydl: return ydl.extract_info(url, download=False)
+    with YoutubeDL(opts) as ydl:
+        return ydl.extract_info(url, download=False)
 
 def choose_best_m3u8(formats):
     candidates = [f for f in formats if f.get("url") and ("m3u8" in (f.get("protocol") or "").lower() or "hls" in (f.get("format_note") or "").lower())]
@@ -26,9 +25,9 @@ def choose_best_m3u8(formats):
     candidates.sort(key=lambda f: (int(f.get("height") or 0), float(f.get("tbr") or 0)), reverse=True)
     return candidates[0]
 
-def fetch_best_m3u8_for_video(video_url, cookiefile=None, timeout=25, quiet=True):
+def fetch_best_m3u8_for_video(video_url, cookiefile=None, timeout=25):
     try:
-        info = fetch_info(video_url, cookiefile=cookiefile, timeout=timeout, extract_flat=False, quiet=quiet)
+        info = fetch_info(video_url, cookiefile=cookiefile, timeout=timeout, extract_flat=False)
         best = choose_best_m3u8(info.get("formats") or [])
         return {"title": info.get("title") or video_url, "url": best.get("url") if best else None, "webpage_url": info.get("webpage_url")}
     except Exception as e:
@@ -46,8 +45,6 @@ def fetch_playlist_entries_flat(playlist_url, cookiefile=None):
         vids.append({"title": title, "url": url})
     return vids
 
-def export_m3u8_list(results): return "\n".join([f"{r['title']} | {r['url']}" for r in results if r.get("url")])
-
 if parse_btn:
     urls = [u.strip() for u in urls_input.splitlines() if u.strip()]
     if urls:
@@ -63,8 +60,8 @@ if parse_btn:
             else:
                 to_process.append({"title": u, "url": u})
         results = []
-        with concurrent.futures.ThreadPoolExecutor(max_workers=_default_max_workers) as ex:
-            future_to_item = {ex.submit(fetch_best_m3u8_for_video, item["url"], cookiefile_path, 25, not _debug_mode): item for item in to_process}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
+            future_to_item = {ex.submit(fetch_best_m3u8_for_video, item["url"], cookiefile_path, 25): item for item in to_process}
             for fut in concurrent.futures.as_completed(future_to_item):
                 item = future_to_item[fut]
                 try: res = fut.result()
