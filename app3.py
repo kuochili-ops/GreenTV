@@ -93,15 +93,14 @@ html_template = '''
 <style>
 body {margin:0;font-family:sans-serif;color:#e6eef8;background:#071021;}
 .container {max-width:900px;margin:12px auto;padding:12px;}
-.cover-small {width:50%;max-width:320px;border-radius:6px;}
-.video-inline {width:100%;max-width:480px;margin-top:8px;border-radius:6px;background:black;}
+.video-inline {width:100%;max-width:720px;margin-top:8px;border-radius:6px;background:black;}
 .list-area {margin-top:12px;max-height:300px;overflow:auto;}
 .song-item {display:flex;gap:8px;align-items:center;padding:8px;border-radius:6px;margin-bottom:6px;background:rgba(255,255,255,0.05);}
 .song-thumb {width:60px;height:34px;object-fit:cover;border-radius:4px;}
 .song-meta {flex:1;}
 .small-btn {padding:4px 6px;border-radius:4px;background:transparent;border:1px solid rgba(255,255,255,0.2);color:#cfe8ff;cursor:pointer;}
 .selected {background:#1f6feb;color:#fff;}
-.btn-row {display:flex;gap:8px;margin-top:8px;}
+.btn-row {display:flex;gap:8px;margin-top:8px;justify-content:center;}
 .btn {padding:6px 10px;border-radius:6px;background:#1f6feb;color:#fff;border:none;cursor:pointer;}
 .red-dot {color:red;font-weight:bold;margin-left:4px;}
 </style>
@@ -110,25 +109,22 @@ body {margin:0;font-family:sans-serif;color:#e6eef8;background:#071021;}
 <div class="container">
   <div id="playerPanel">
     <div id="selectedTitle" style="font-weight:600;">尚未選擇項目</div>
-    <div class="player-inline">
-      <img id="coverImg" class="cover-small" src="https://placehold.co/320x180/0b1b2b/ffffff?text=Cover">
-      <video id="video" controls playsinline class="video-inline"></video>
+    <video id="video" controls playsinline class="video-inline"></video>
+    <div class="btn-row">
+      <button id="prevBtn" class="btn">⏮ 上一項</button>
+      <button id="nextBtn" class="btn">⏭ 下一項</button>
     </div>
   </div>
   <div style="margin-top:12px;font-weight:600;color:#cfe8ff;">候選清單</div>
   <div id="listArea" class="list-area"></div>
   <div style="margin-top:12px;font-weight:600;color:#cfe8ff;">播放佇列</div>
-  <div class="btn-row">
-    <button id="prevBtn" class="btn">⏮ 上一項</button>
-    <button id="nextBtn" class="btn">⏭ 下一項</button>
-  </div>
   <div id="queueArea" class="list-area"></div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js"></script>
 <script>
 const list={JS_LIST};let selectedIndex={INIT_SELECTED};let queue=[];
 const listArea=document.getElementById('listArea'),queueArea=document.getElementById('queueArea'),
-selectedTitle=document.getElementById('selectedTitle'),coverImg=document.getElementById('coverImg'),video=document.getElementById('video');
+selectedTitle=document.getElementById('selectedTitle'),video=document.getElementById('video');
 
 function renderList(){
   listArea.innerHTML='';
@@ -161,16 +157,13 @@ function attachSelectHandlers(){
     btn.onclick=(e)=>{
       const i=parseInt(e.target.dataset.i);
       selectedIndex=i;
-      // 移除其他項目的操作鍵
       document.querySelectorAll('.action-row').forEach(el=>el.remove());
-      // 在當前項目下插入操作鍵
       const action=document.createElement('div');
       action.className='action-row btn-row';
       action.innerHTML=`<button class="btn" onclick="playItem(${i})">▶ 播放</button>
                         <button class="btn" onclick="toggleQueue(${i})">佇列</button>
                         <button class="btn" onclick="removeItem(${i})">刪除</button>`;
       e.target.parentNode.appendChild(action);
-      // 點擊其他地方時移除
       document.body.onclick=(ev)=>{
         if(!action.contains(ev.target) && ev.target!==btn){action.remove();}
       };
@@ -182,7 +175,6 @@ function updateSelectedUI(autoplay=true){
   if(!list||list.length===0)return;
   const cur=list[selectedIndex];
   selectedTitle.innerText=`選擇：${selectedIndex+1}. ${cur.title}`;
-  coverImg.src=cur.thumb||'https://placehold.co/320x180/0b1b2b/ffffff?text=Cover';
   loadHls(cur.url,autoplay);
 }
 
@@ -212,26 +204,31 @@ function removeItem(i){
   renderList();renderQueue();
 }
 
+// 控制播放佇列的上一項/下一項
 document.getElementById('prevBtn').onclick=()=>{
-  if(list.length){selectedIndex=(selectedIndex-1+list.length)%list.length;updateSelectedUI(true);}
+  if(queue.length>0){
+    const idx=Math.max(0,queue.findIndex(q=>q.url===list[selectedIndex].url)-1);
+    if(idx>=0){const next=queue[idx];selectedIndex=list.findIndex(x=>x.url===next.url);updateSelectedUI(true);}
+  }
 };
 document.getElementById('nextBtn').onclick=()=>{
-  if(list.length){selectedIndex=(selectedIndex+1)%list.length;updateSelectedUI(true);}
+  if(queue.length>0){
+    const idx=queue.findIndex(q=>q.url===list[selectedIndex].url)+1;
+    if(idx<queue.length){const next=queue[idx];selectedIndex=list.findIndex(x=>x.url===next.url);updateSelectedUI(true);}
+  }
 };
 
 video.addEventListener('ended',()=>{
   if(queue.length>0){
-    const next=queue.shift();
-    const idx=list.findIndex(x=>x.url===next.url);
-    if(idx>=0){selectedIndex=idx;renderList();loadHls(list[selectedIndex].url,true);}else{loadHls(next.url,true);}
+    const idx=queue.findIndex(q=>q.url===list[selectedIndex].url)+1;
+    if(idx<queue.length){
+      const next=queue[idx];
+      selectedIndex=list.findIndex(x=>x.url===next.url);
+      renderList();loadHls(list[selectedIndex].url,true);
+    }
     renderQueue();
     return;
   }
-  if(!list.length)return;
-  selectedIndex=(selectedIndex+1)%list.length;
-  if(selectedIndex===0)return;
-  renderList();
-  loadHls(list[selectedIndex].url,true);
 });
 
 renderList();
@@ -240,7 +237,6 @@ renderQueue();
 </body>
 </html>
 '''
-
 html_template = html_template.replace("{JS_LIST}", js_list).replace("{INIT_SELECTED}", str(init_selected))
 st.components.v1.html(html_template, height=900, scrolling=True)
 
