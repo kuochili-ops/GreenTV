@@ -1,4 +1,4 @@
-# app.py
+# app.py (Part 1: Python backend)
 import streamlit as st
 from yt_dlp import YoutubeDL
 import tempfile, concurrent.futures, json, re
@@ -7,7 +7,11 @@ from html import escape
 st.set_page_config(page_title="YouTube 點唱機（單欄）", layout="wide")
 st.markdown("<h1 style='margin-bottom:6px;'>🎵 YouTube 點唱機（單欄）</h1>", unsafe_allow_html=True)
 
-with st.expander("輸入 YouTube 影片或播放清單網址（每行一個）", expanded=False):
+# 控制 expander 展開/收起
+if "expander_open" not in st.session_state:
+    st.session_state.expander_open = True
+
+with st.expander("輸入 YouTube 影片或播放清單網址（每行一個）", expanded=st.session_state.expander_open):
     urls_input = st.text_area("網址（每行一個）", height=120)
     uploaded_cookies = st.file_uploader("（選擇性）上傳 cookies.txt", type=["txt"])
     parse_btn = st.button("開始解析並產生清單")
@@ -46,6 +50,7 @@ def fetch_playlist_entries_flat(playlist_url, cookiefile=None):
     return vids
 
 if parse_btn:
+    st.session_state.expander_open = False   # 按下後收起
     urls = [u.strip() for u in urls_input.splitlines() if u.strip()]
     if urls:
         cookiefile_path = None
@@ -72,7 +77,7 @@ if parse_btn:
         st.success(f"解析完成：可播放 {len(playable)} 項")
 
 def youtube_id_from_url(url):
-    m = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11})(?:[&?#]|$)", url or "")
+    m = re.search(r"(?:v=|\\/)([0-9A-Za-z_-]{11})(?:[&?#]|$)", url or "")
     return m.group(1) if m else None
 
 playable = st.session_state.get("playable", [])
@@ -84,6 +89,8 @@ for p in playable:
     safe_playable.append({"title": escape(p.get("title","")), "url": p.get("url"), "thumb": thumb})
 js_list = json.dumps(safe_playable)
 init_selected = selected_index if selected_index is not None else 0
+
+# app.py (Part 2: HTML/JS frontend)
 html_template = '''
 <!doctype html>
 <html>
@@ -113,6 +120,8 @@ body {margin:0;font-family:sans-serif;color:#e6eef8;background:#071021;}
     <div class="btn-row">
       <button id="prevBtn" class="btn">⏮ 上一項</button>
       <button id="nextBtn" class="btn">⏭ 下一項</button>
+      <button id="loopBtn" class="btn">🔁 循環</button>
+      <button id="shuffleBtn" class="btn">🔀 隨機</button>
     </div>
   </div>
   <div style="margin-top:12px;font-weight:600;color:#cfe8ff;">候選清單</div>
@@ -123,6 +132,8 @@ body {margin:0;font-family:sans-serif;color:#e6eef8;background:#071021;}
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js"></script>
 <script>
 const list={JS_LIST};let selectedIndex={INIT_SELECTED};let queue=[];
+let loopMode=false, shuffleMode=false;
+
 const listArea=document.getElementById('listArea'),queueArea=document.getElementById('queueArea'),
 selectedTitle=document.getElementById('selectedTitle'),video=document.getElementById('video');
 
@@ -193,7 +204,7 @@ function loadHls(url,autoplay=false){
 
 function playItem(i){selectedIndex=i;updateSelectedUI(true);}
 
-// 修改後：第一次加入佇列就立即播放
+// 第一次加入佇列就立即播放
 function toggleQueue(i){
   const item=list[i];
   const idx=queue.findIndex(q=>q.url===item.url);
@@ -201,7 +212,7 @@ function toggleQueue(i){
     queue.splice(idx,1);
   }else{
     queue.push(item);
-    if(queue.length===1){ // 第一次加入 → 立即播放
+    if(queue.length===1){
       selectedIndex=i;
       updateSelectedUI(true);
     }
@@ -229,6 +240,16 @@ document.getElementById('nextBtn').onclick=()=>{
   }
 };
 
+// 循環 / 隨機播放模式切換
+document.getElementById('loopBtn').onclick=()=>{
+  loopMode=!loopMode;
+  alert("循環播放: "+(loopMode?"開啟":"關閉"));
+};
+document.getElementById('shuffleBtn').onclick=()=>{
+  shuffleMode=!shuffleMode;
+  alert("隨機播放: "+(shuffleMode?"開啟":"關閉"));
+};
+
 video.addEventListener('ended',()=>{
   if(queue.length>0){
     const idx=queue.findIndex(q=>q.url===list[selectedIndex].url)+1;
@@ -236,8 +257,17 @@ video.addEventListener('ended',()=>{
       const next=queue[idx];
       selectedIndex=list.findIndex(x=>x.url===next.url);
       renderList();loadHls(list[selectedIndex].url,true);
+    }else if(loopMode){
+      const next=queue[0];
+      selectedIndex=list.findIndex(x=>x.url===next.url);
+      renderList();loadHls(list[selectedIndex].url,true);
     }
     renderQueue();
+    return;
+  }
+  if(shuffleMode && list.length>0){
+    selectedIndex=Math.floor(Math.random()*list.length);
+    renderList();loadHls(list[selectedIndex].url,true);
     return;
   }
 });
