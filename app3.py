@@ -89,8 +89,7 @@ for p in playable:
     safe_playable.append({"title": escape(p.get("title","")), "url": p.get("url"), "thumb": thumb})
 js_list = json.dumps(safe_playable)
 init_selected = selected_index if selected_index is not None else 0
-
-# app.py (Part 2: HTML/JS frontend)
+# app.py (Part 2A: HTML + CSS)
 html_template = '''
 <!doctype html>
 <html>
@@ -127,6 +126,9 @@ body {margin:0;font-family:sans-serif;color:#e6eef8;background:#071021;}
   <div style="margin-top:12px;font-weight:600;color:#cfe8ff;">候選清單</div>
   <div id="listArea" class="list-area"></div>
   <div style="margin-top:12px;font-weight:600;color:#cfe8ff;">播放佇列</div>
+  <div class="btn-row">
+    <button id="addAllBtn" class="btn">➕ 全部加入佇列</button>
+  </div>
   <div id="queueArea" class="list-area"></div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js"></script>
@@ -204,7 +206,7 @@ function loadHls(url,autoplay=false){
 
 function playItem(i){selectedIndex=i;updateSelectedUI(true);}
 
-// 第一次加入佇列就立即播放
+// 單項加入佇列
 function toggleQueue(i){
   const item=list[i];
   const idx=queue.findIndex(q=>q.url===item.url);
@@ -219,6 +221,21 @@ function toggleQueue(i){
   }
   renderList();renderQueue();
 }
+
+// 一鍵全部加入佇列後立刻播放第一首
+document.getElementById('addAllBtn').onclick=()=>{
+  list.forEach(item=>{
+    if(!queue.find(q=>q.url===item.url)){
+      queue.push(item);
+    }
+  });
+  if(queue.length>0){
+    selectedIndex=list.findIndex(x=>x.url===queue[0].url);
+    updateSelectedUI(true);
+  }
+  renderList();
+  renderQueue();
+};
 
 function removeItem(i){
   list.splice(i,1);
@@ -256,18 +273,21 @@ video.addEventListener('ended',()=>{
     if(idx<queue.length){
       const next=queue[idx];
       selectedIndex=list.findIndex(x=>x.url===next.url);
-      renderList();loadHls(list[selectedIndex].url,true);
+      renderList();
+      loadHls(list[selectedIndex].url,true);
     }else if(loopMode){
       const next=queue[0];
       selectedIndex=list.findIndex(x=>x.url===next.url);
-      renderList();loadHls(list[selectedIndex].url,true);
+      renderList();
+      loadHls(list[selectedIndex].url,true);
     }
     renderQueue();
     return;
   }
   if(shuffleMode && list.length>0){
     selectedIndex=Math.floor(Math.random()*list.length);
-    renderList();loadHls(list[selectedIndex].url,true);
+    renderList();
+    loadHls(list[selectedIndex].url,true);
     return;
   }
 });
@@ -278,6 +298,8 @@ renderQueue();
 </body>
 </html>
 '''
+
+
 
 html_template = html_template.replace("{JS_LIST}", js_list).replace("{INIT_SELECTED}", str(init_selected))
 st.components.v1.html(html_template, height=900, scrolling=True)
