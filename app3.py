@@ -93,10 +93,6 @@ html_template = '''
 <style>
 body {margin:0;font-family:sans-serif;color:#e6eef8;background:#071021;}
 .container {max-width:900px;margin:12px auto;padding:12px;}
-.top-panel {background:#0b2a4a;padding:12px;border-radius:8px;color:#fff;}
-.btn-row {display:flex;gap:8px;margin-top:8px;}
-.btn {padding:8px 12px;border-radius:6px;background:#1f6feb;color:#fff;border:none;cursor:pointer;}
-.player-inline {margin-top:12px;}
 .cover-small {width:50%;max-width:320px;border-radius:6px;}
 .video-inline {width:100%;max-width:480px;margin-top:8px;border-radius:6px;background:black;}
 .list-area {margin-top:12px;max-height:300px;overflow:auto;}
@@ -105,17 +101,15 @@ body {margin:0;font-family:sans-serif;color:#e6eef8;background:#071021;}
 .song-meta {flex:1;}
 .small-btn {padding:4px 6px;border-radius:4px;background:transparent;border:1px solid rgba(255,255,255,0.2);color:#cfe8ff;cursor:pointer;}
 .selected {background:#1f6feb;color:#fff;}
+.btn-row {display:flex;gap:8px;margin-top:8px;}
+.btn {padding:6px 10px;border-radius:6px;background:#1f6feb;color:#fff;border:none;cursor:pointer;}
+.red-dot {color:red;font-weight:bold;margin-left:4px;}
 </style>
 </head>
 <body>
 <div class="container">
-  <div class="top-panel">
+  <div id="playerPanel">
     <div id="selectedTitle" style="font-weight:600;">尚未選擇項目</div>
-    <div class="btn-row">
-      <button id="btnPlay" class="btn">▶ 播放</button>
-      <button id="btnQueue" class="btn">＋ 加入佇列</button>
-      <button id="btnRemove" class="btn">🗑 移除</button>
-    </div>
     <div class="player-inline">
       <img id="coverImg" class="cover-small" src="https://placehold.co/320x180/0b1b2b/ffffff?text=Cover">
       <video id="video" controls playsinline class="video-inline"></video>
@@ -124,6 +118,10 @@ body {margin:0;font-family:sans-serif;color:#e6eef8;background:#071021;}
   <div style="margin-top:12px;font-weight:600;color:#cfe8ff;">候選清單</div>
   <div id="listArea" class="list-area"></div>
   <div style="margin-top:12px;font-weight:600;color:#cfe8ff;">播放佇列</div>
+  <div class="btn-row">
+    <button id="prevBtn" class="btn">⏮ 上一項</button>
+    <button id="nextBtn" class="btn">⏭ 下一項</button>
+  </div>
   <div id="queueArea" class="list-area"></div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js"></script>
@@ -136,13 +134,15 @@ function renderList(){
   listArea.innerHTML='';
   if(!list||list.length===0){listArea.innerHTML='<div>候選清單為空</div>';return;}
   list.forEach((item,i)=>{
+    const inQueue = queue.find(q=>q.url===item.url);
     const div=document.createElement('div');
     div.className='song-item'+(i===selectedIndex?' selected':'');
-    div.innerHTML=`<img class="song-thumb" src="${item.thumb}"><div class="song-meta">${i+1}. ${item.title}</div><button class="small-btn select-btn" data-i="${i}">選擇</button>`;
+    div.innerHTML=`<img class="song-thumb" src="${item.thumb}">
+                   <div class="song-meta">${i+1}. ${item.title}${inQueue?'<span class="red-dot">●</span>':''}</div>
+                   <button class="small-btn select-btn" data-i="${i}">選擇</button>`;
     listArea.appendChild(div);
   });
   attachSelectHandlers();
-  updateSelectedUI(false);
 }
 
 function renderQueue(){
@@ -161,8 +161,19 @@ function attachSelectHandlers(){
     btn.onclick=(e)=>{
       const i=parseInt(e.target.dataset.i);
       selectedIndex=i;
-      renderList();
-      e.target.closest('.song-item').scrollIntoView({behavior:'smooth',block:'center'});
+      // 移除其他項目的操作鍵
+      document.querySelectorAll('.action-row').forEach(el=>el.remove());
+      // 在當前項目下插入操作鍵
+      const action=document.createElement('div');
+      action.className='action-row btn-row';
+      action.innerHTML=`<button class="btn" onclick="playItem(${i})">▶ 播放</button>
+                        <button class="btn" onclick="toggleQueue(${i})">佇列</button>
+                        <button class="btn" onclick="removeItem(${i})">刪除</button>`;
+      e.target.parentNode.appendChild(action);
+      // 點擊其他地方時移除
+      document.body.onclick=(ev)=>{
+        if(!action.contains(ev.target) && ev.target!==btn){action.remove();}
+      };
     };
   });
 }
@@ -188,19 +199,24 @@ function loadHls(url,autoplay=false){
   }else{video.src=url;if(autoplay)video.play().catch(()=>{});}
 }
 
-document.getElementById('btnPlay').onclick=()=>{if(!list.length)return;video.muted=false;video.play();};
-document.getElementById('btnQueue').onclick=()=>{
-  if(!list.length)return;
-  const item=list[selectedIndex];
-  if(!queue.find(q=>q.url===item.url))queue.push(item);
-  renderQueue();
-};
-document.getElementById('btnRemove').onclick=()=>{
-  if(!list.length)return;
-  list.splice(selectedIndex,1);
+function playItem(i){selectedIndex=i;updateSelectedUI(true);}
+function toggleQueue(i){
+  const item=list[i];
+  const idx=queue.findIndex(q=>q.url===item.url);
+  if(idx>=0){queue.splice(idx,1);}else{queue.push(item);}
+  renderList();renderQueue();
+}
+function removeItem(i){
+  list.splice(i,1);
   if(selectedIndex>=list.length)selectedIndex=Math.max(0,list.length-1);
-  renderList();
-  renderQueue();
+  renderList();renderQueue();
+}
+
+document.getElementById('prevBtn').onclick=()=>{
+  if(list.length){selectedIndex=(selectedIndex-1+list.length)%list.length;updateSelectedUI(true);}
+};
+document.getElementById('nextBtn').onclick=()=>{
+  if(list.length){selectedIndex=(selectedIndex+1)%list.length;updateSelectedUI(true);}
 };
 
 video.addEventListener('ended',()=>{
@@ -224,5 +240,7 @@ renderQueue();
 </body>
 </html>
 '''
+
 html_template = html_template.replace("{JS_LIST}", js_list).replace("{INIT_SELECTED}", str(init_selected))
 st.components.v1.html(html_template, height=900, scrolling=True)
+
