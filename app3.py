@@ -192,12 +192,23 @@ function loadHls(url,autoplay=false){
 }
 
 function playItem(i){selectedIndex=i;updateSelectedUI(true);}
+
+// 修改後：第一次加入佇列就立即播放
 function toggleQueue(i){
   const item=list[i];
   const idx=queue.findIndex(q=>q.url===item.url);
-  if(idx>=0){queue.splice(idx,1);}else{queue.push(item);}
+  if(idx>=0){
+    queue.splice(idx,1);
+  }else{
+    queue.push(item);
+    if(queue.length===1){ // 第一次加入 → 立即播放
+      selectedIndex=i;
+      updateSelectedUI(true);
+    }
+  }
   renderList();renderQueue();
 }
+
 function removeItem(i){
   list.splice(i,1);
   if(selectedIndex>=list.length)selectedIndex=Math.max(0,list.length-1);
@@ -207,8 +218,8 @@ function removeItem(i){
 // 控制播放佇列的上一項/下一項
 document.getElementById('prevBtn').onclick=()=>{
   if(queue.length>0){
-    const idx=Math.max(0,queue.findIndex(q=>q.url===list[selectedIndex].url)-1);
-    if(idx>=0){const next=queue[idx];selectedIndex=list.findIndex(x=>x.url===next.url);updateSelectedUI(true);}
+    const idx=queue.findIndex(q=>q.url===list[selectedIndex].url)-1;
+    if(idx>=0){const prev=queue[idx];selectedIndex=list.findIndex(x=>x.url===prev.url);updateSelectedUI(true);}
   }
 };
 document.getElementById('nextBtn').onclick=()=>{
@@ -237,6 +248,7 @@ renderQueue();
 </body>
 </html>
 '''
+
 html_template = html_template.replace("{JS_LIST}", js_list).replace("{INIT_SELECTED}", str(init_selected))
 st.components.v1.html(html_template, height=900, scrolling=True)
 
