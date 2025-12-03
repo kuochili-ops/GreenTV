@@ -34,6 +34,18 @@ def fetch_best_m3u8_for_video(video_url, cookiefile=None, timeout=25, quiet=True
     except Exception as e:
         return {"title": video_url, "url": None, "error": str(e)}
 
+def fetch_playlist_entries_flat(playlist_url, cookiefile=None):
+    info = fetch_info(playlist_url, cookiefile=cookiefile, extract_flat=True)
+    entries = info.get("entries") or []
+    vids = []
+    for e in entries:
+        url = e.get("url") or e.get("webpage_url")
+        title = e.get("title") or url
+        if url and url.startswith("watch"):
+            url = "https://www.youtube.com/" + url
+        vids.append({"title": title, "url": url})
+    return vids
+
 def export_m3u8_list(results): return "\n".join([f"{r['title']} | {r['url']}" for r in results if r.get("url")])
 
 if parse_btn:
@@ -44,7 +56,12 @@ if parse_btn:
             tmp = tempfile.NamedTemporaryFile(delete=False)
             tmp.write(uploaded_cookies.getbuffer()); tmp.close()
             cookiefile_path = tmp.name
-        to_process = [{"title": u, "url": u} for u in urls]
+        to_process = []
+        for u in urls:
+            if "list=" in u or "playlist" in u:
+                to_process.extend(fetch_playlist_entries_flat(u, cookiefile_path))
+            else:
+                to_process.append({"title": u, "url": u})
         results = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=_default_max_workers) as ex:
             future_to_item = {ex.submit(fetch_best_m3u8_for_video, item["url"], cookiefile_path, 25, not _debug_mode): item for item in to_process}
@@ -69,8 +86,7 @@ for p in playable:
     thumb = f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg" if vid else "https://placehold.co/640x360/0b1b2b/ffffff?text=No+Cover"
     safe_playable.append({"title": escape(p.get("title","")), "url": p.get("url"), "thumb": thumb})
 js_list = json.dumps(safe_playable)
-init_selected = selected_index if selected_index is not None else 0
-
+init_selected = selected_index if selected_index is not None else 
 html_template = '''
 <!doctype html>
 <html>
